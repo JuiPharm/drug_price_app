@@ -1,158 +1,148 @@
-# Drug Price Dashboard — Google Sheet + GitHub Pages
+# Drug Price App - Easy Deploy Version
 
-Web application สำหรับดูรายการยา ค้นหาแบบพิมพ์บางตัวอักษร แก้ไขราคา เพิ่มรายการใหม่ คำนวณ Gross Margin และบันทึกกลับ Google Sheet
+เวอร์ชันนี้ออกแบบให้ Deploy ง่ายที่สุด:
+
+- ไม่ใช้ React
+- ไม่ใช้ Vite
+- ไม่ต้อง npm install
+- ไม่ต้อง build
+- อัปโหลดไฟล์ขึ้น GitHub Pages ได้เลย
+- Google Sheet ใช้ Apps Script `Code.gs` เป็น API
 
 ## โครงสร้างไฟล์
 
 ```text
-index.html      หน้า Web application
-styles.css      Responsive UI / Card / Modal
-app.js          Logic ค้นหา แสดงผล แก้ไข บันทึก และ Calculator
-config.js       ใส่ Apps Script Web App URL
-Code.gs         Google Apps Script API สำหรับอ่าน/เขียน Google Sheet
-.nojekyll       ให้ GitHub Pages serve static files ตรงๆ
+Code.gs          # วางใน Google Apps Script
+index.html       # อัปโหลดขึ้น GitHub Pages
+styles.css       # อัปโหลดขึ้น GitHub Pages
+app.js           # อัปโหลดขึ้น GitHub Pages
+config.js        # ใส่ Apps Script Web App URL แล้วอัปโหลดขึ้น GitHub Pages
+README.md
 ```
 
-## วิธี Deploy แบบง่าย
+## 1) เตรียม Google Sheet
 
-### 1) เตรียม Google Sheet
+ข้อมูลต้องเป็นรูปแบบนี้:
 
-1. เปิดไฟล์ Excel แล้ว Import/Upload เป็น Google Sheet
-2. ให้ชื่อชีตเป็น `Sheet1` หรือแก้ `CONFIG.SHEET_NAME` ใน `Code.gs`
-3. โครงสร้างไฟล์ตัวอย่างนี้ใช้ Header row ที่แถว 2 และข้อมูลเริ่มแถว 3
+- Header อยู่ Row 1
+- Data เริ่ม Row 2
+- ชื่อชีต default ในโค้ดคือ `DataBase`
 
-คอลัมน์หลักที่รองรับจากไฟล์ตัวอย่าง:
-
-- `item_code`
-- `GenercName`
-- `FullName`
-- `DosageForm`
-- `Major Class`
-- `Sub Class`
-- `ราคาต้นทุน`
-- `ราคา OPD`
-- `ราคา IPD`
-- `ราคา สกย. OPD`
-- `ราคา สกย. IPD`
-- `ราคา IPD_Foreigner`
-- `ราคา OPD_Foreigner`
-- `nhso_heart_price`
-- `gross_margin_*`
-
-`Code.gs` จะสร้างคอลัมน์ต่อไปนี้ให้อัตโนมัติถ้ายังไม่มี:
-
-- `row_id`
-- `created_at`
-- `updated_at`
-- `last_edited_by`
-- `ราคาสกย.OPD Discount 20%`
-- `ราคา สกย.IPD Discount 20%`
-- `OPD สกย. after discount -Cost`
-- `ราคา IPD สกย After dis count - Cost`
-
-### 2) ติดตั้ง Apps Script
-
-1. Google Sheet > Extensions > Apps Script
-2. ลบโค้ดเดิม แล้ววางโค้ดจากไฟล์ `Code.gs`
-3. กด Save
-4. เลือก function `setup` แล้วกด Run 1 ครั้ง
-5. Authorize ให้เรียบร้อย
-
-ถ้าต้องการ token แบบง่าย:
+ถ้าชื่อชีตไม่ใช่ `DataBase` ให้แก้ใน `Code.gs`:
 
 ```js
-setAppToken('ตั้ง-token-ของคุณ')
+const CONFIG = {
+  SHEET_NAME: 'DataBase',
+  HEADER_ROW: 1,
+  DATA_START_ROW: 2,
+  ...
+};
 ```
 
-จากนั้นใส่ token เดียวกันใน `config.js` ที่ `APP_TOKEN`
+## 2) ติดตั้ง Apps Script
 
-> หมายเหตุ: token ในเว็บ static ไม่ใช่ระบบ Login ที่ปลอดภัยเต็มรูปแบบ เพราะผู้ใช้เปิด source ดูได้ หากข้อมูลมีความลับ ควรทำ OAuth หรือ deploy หน้าเว็บเป็น Apps Script HTML Service แทน
+1. เปิด Google Sheet
+2. ไปที่ Extensions > Apps Script
+3. ลบ code เดิม แล้ววาง `Code.gs`
+4. กด Save
+5. เลือก function `setup`
+6. กด Run 1 ครั้ง
+7. อนุญาตสิทธิ์ตามที่ Google ขอ
 
-### 3) Deploy Apps Script เป็น Web App
+`setup()` จะทำงานเหล่านี้:
+
+- สร้าง `row_id`
+- สร้าง `updated_at`, `created_at`
+- สร้าง Column คำนวณ Discount 20%
+- สร้าง Column after discount - Cost
+- สร้าง Column gross margin
+- ลบเฉพาะ Column ว่างท้ายตารางที่ Header Row 1 ว่าง
+- กันการสร้าง Column ระบบซ้ำ
+
+## 3) Deploy Apps Script เป็น Web App
 
 1. Apps Script > Deploy > New deployment
-2. Select type > Web app
-3. Execute as: `Me`
-4. Who has access: เลือกตามการใช้งาน เช่น `Anyone with the link` หรือเฉพาะในองค์กร
-5. กด Deploy แล้ว Copy Web App URL ที่ลงท้ายด้วย `/exec`
+2. Type: Web app
+3. Execute as: Me
+4. Who has access: Anyone with the link
+5. Deploy
+6. Copy Web App URL ที่ลงท้าย `/exec`
 
-### 4) ตั้งค่า Frontend
+ทดสอบ URL:
 
-เปิด `config.js` แล้วใส่ URL:
+```text
+https://script.google.com/macros/s/xxxxx/exec?action=ping
+```
+
+ควรเห็น JSON ประมาณนี้:
+
+```json
+{"ok":true,"now":"..."}
+```
+
+## 4) ตั้งค่า config.js
+
+เปิด `config.js` แล้วใส่ Web App URL:
 
 ```js
 window.DRUG_APP_CONFIG = {
   WEB_APP_URL: 'https://script.google.com/macros/s/xxxxx/exec',
   APP_TOKEN: '',
-  POLL_INTERVAL_MS: 5000
+  POLL_INTERVAL_MS: 5000,
+  PAGE_SIZE: 60
 };
 ```
 
-### 5) Deploy GitHub Pages
+สำคัญ: อย่าใส่ `// comment` ต่อท้ายบรรทัด config เพราะอาจทำให้ GitHub Pages อ่านไฟล์ผิดเมื่อถูกแก้เป็นบรรทัดเดียว
 
-1. สร้าง GitHub repository ใหม่
-2. Upload ไฟล์ทั้งหมดใน folder นี้
+## 5) Deploy GitHub Pages แบบง่าย
+
+1. เปิด repo GitHub เช่น `drug_price_app`
+2. Upload ไฟล์เหล่านี้ไปที่ root repo:
+   - `index.html`
+   - `styles.css`
+   - `app.js`
+   - `config.js`
 3. ไปที่ Settings > Pages
 4. Source: Deploy from a branch
-5. Branch: `main` / root
-6. เปิด URL GitHub Pages ที่ได้
+5. Branch: `main` / folder: `/root`
+6. Save
 
-## Function ที่รองรับ
-
-### ค้นหาเร็ว
-
-พิมพ์บางตัวอักษรได้ เช่น:
-
-- ชื่อยา: `cream`
-- รหัสยา: `5105`
-- รูปแบบยา: `VIA`
-- กลุ่มยา: `antidote`
-
-ระบบค้นหาจาก `item_code`, `GenercName`, `FullName`, `DosageForm`, `Major Class`, `Sub Class`
-
-### Card + Modal
-
-- แสดงรายการยาเป็น Card
-- กด Card เพื่อดูรายละเอียดครบถ้วน
-- กด Edit เพื่อแก้ไขราคา/ข้อมูล
-- กด Save เพื่อบันทึกลง Google Sheet
-
-### เพิ่มรายการใหม่
-
-เมื่อ Add รายการใหม่ ระบบจะตั้งค่าอัตโนมัติ:
-
-- `ราคา OPD = ราคา สกย. OPD`
-- `ราคา IPD = ราคา สกย. IPD`
-- ถ้าไม่มีราคา IPD จะใช้ `ราคา IPD = ราคา OPD + 30%`
-- `ราคา OPD_Foreigner = ราคา OPD + 30%`
-- `ราคา IPD_Foreigner = ราคา IPD + 30%`
-
-หลังจากเพิ่มแล้ว ผู้ใช้สามารถกลับมา Edit ราคาทุกช่องได้
-
-### Gross Margin Calculator
-
-สูตร:
+เว็บจะเปิดได้ที่:
 
 ```text
-Gross margin = 100*((ราคาขาย-ราคาต้นทุน)/ราคาขาย)
+https://USERNAME.github.io/REPOSITORY_NAME/
 ```
 
-มี 2 เครื่องมือ:
+## การแก้ปัญหา
 
-1. คำนวณราคาขายจาก % Gross Margin
-2. คำนวณ % Gross Margin จากราคาขาย
+### เว็บไม่แสดงข้อมูล
 
-### Warning เมื่อติดลบ
+ตรวจ 4 จุดนี้:
 
-ระบบคำนวณ:
+1. `config.js` ใส่ URL `/exec` ถูกต้องหรือไม่
+2. Apps Script Web App ตั้ง `Anyone with the link` หรือไม่
+3. ชื่อ Sheet ใน `Code.gs` ตรงกับ Google Sheet หรือไม่
+4. ทดสอบ `?action=ping` ผ่านหรือไม่
 
-- `ราคาสกย.OPD Discount 20% = ราคา สกย. OPD * 0.8`
-- `ราคา สกย.IPD Discount 20% = ราคา สกย. IPD * 0.8`
-- `OPD สกย. after discount -Cost = ราคา สกย. OPD * 0.8 - ราคาต้นทุน`
-- `ราคา IPD สกย After dis count - Cost = ราคา สกย. IPD * 0.8 - ราคาต้นทุน`
+### Click รายการแล้วข้อมูลบางช่องไม่แสดง
 
-ถ้า OPD/IPD after discount - Cost ติดลบ หน้าเว็บจะ POP Confirm ก่อนบันทึก
+เวอร์ชันนี้แก้แล้ว:
 
-## หมายเหตุเรื่อง Real-time
+- ค่า `0` จะแสดงเป็น `0.00`
+- ช่องว่างจริงจะแสดงเป็นช่องว่าง/ขีด
+- Modal render ทุก header ที่ Google Sheet ส่งมา
 
-GitHub Pages เป็น static hosting จึงไม่มี server push/WebSocket ในตัว ระบบนี้ใช้ polling ทุก 5 วินาทีเพื่อดึงข้อมูลล่าสุดจาก Google Sheet ดังนั้นเมื่อแก้ข้อมูลใน Google Sheet หน้าเว็บจะ update ในรอบ refresh ถัดไป สามารถปรับความถี่ได้ที่ `POLL_INTERVAL_MS`
+### แก้ข้อมูลแล้วไม่ update
+
+หลัง Save ระบบใช้ POST แบบ `no-cors` ไป Apps Script แล้ว reload ข้อมูลใหม่ภายในประมาณ 1-2 วินาที ถ้าไม่เปลี่ยนให้ Refresh อีกครั้ง และตรวจ Apps Script Executions ว่ามี error หรือไม่
+
+
+## Floating Back button for mobile
+
+เวอร์ชันนี้เพิ่มปุ่ม `← กลับ` แบบ floating สำหรับมือถือแล้ว:
+
+- แสดงเมื่อเปิด Modal, อยู่ใน Tab อื่น, หรือ scroll ลงมามากกว่า 120px
+- กดแล้วจะปิด Modal ก่อน
+- ถ้าอยู่ Tab คำนวณ/ตั้งค่า จะกลับไป Tab รายการยา
+- ถ้าอยู่หน้าเดิมและ scroll ลงมา จะเลื่อนกลับด้านบน

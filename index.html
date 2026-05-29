@@ -1,110 +1,137 @@
 <!doctype html>
 <html lang="th">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Drug Price Dashboard</title>
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drug Price App</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="app-header">
+  <header class="topbar">
     <div>
-      <p class="eyebrow">Google Sheet Real-time Drug List</p>
-      <h1>Drug Price Dashboard</h1>
-      <p class="header-desc">ค้นหา แก้ไขราคา คำนวณ Gross Margin และบันทึกกลับ Google Sheet</p>
+      <p class="eyebrow">Drug database</p>
+      <h1>ระบบดูและแก้ไขราคายา</h1>
+      <p class="subtext">เชื่อมข้อมูลจาก Google Sheet พร้อมค้นหา แก้ไข และคำนวณ Gross Margin</p>
     </div>
-    <div class="header-actions">
-      <span id="statusText" class="status warn">กำลังเริ่มต้น...</span>
-      <button id="refreshBtn" class="secondary-btn">Refresh</button>
+    <div class="status-card">
+      <span id="syncStatus" class="status-dot idle"></span>
+      <div>
+        <strong id="syncText">ยังไม่โหลดข้อมูล</strong>
+        <small id="syncTime">-</small>
+      </div>
     </div>
   </header>
 
-  <main class="container">
-    <section class="stats-grid" aria-label="summary">
-      <article class="stat-card">
-        <span>รายการทั้งหมด</span>
-        <strong id="totalCount">-</strong>
-      </article>
-      <article class="stat-card danger">
-        <span>After discount ติดลบ</span>
-        <strong id="negativeCount">-</strong>
-      </article>
-      <article class="stat-card">
-        <span>GM OPD เฉลี่ย</span>
-        <strong id="avgGmOpd">-</strong>
-      </article>
-    </section>
+  <nav class="tabs" aria-label="Main tabs">
+    <button class="tab active" data-tab="databaseTab">รายการยา</button>
+    <button class="tab" data-tab="calculatorTab">คำนวณ Gross Margin</button>
+    <button class="tab" data-tab="settingsTab">ตั้งค่า</button>
+  </nav>
 
-    <nav class="tabs" aria-label="main tabs">
-      <button class="tab-btn active" data-tab="drugs">รายการยา</button>
-      <button class="tab-btn" data-tab="calculator">คำนวณ Gross Margin</button>
-    </nav>
+  <main>
+    <section id="databaseTab" class="tab-panel active">
+      <section class="toolbar">
+        <div class="search-box">
+          <label for="searchInput">ค้นหา</label>
+          <input id="searchInput" type="search" placeholder="พิมพ์บางตัวอักษร เช่น code, ชื่อยา, ราคา..." autocomplete="off" />
+        </div>
+        <div class="toolbar-actions">
+          <button id="refreshBtn" class="btn secondary">Refresh</button>
+          <button id="addBtn" class="btn primary">+ เพิ่มรายการใหม่</button>
+        </div>
+      </section>
 
-    <section id="drugsTab" class="tab-panel active">
-      <div class="toolbar">
-        <label class="search-box">
-          <span>ค้นหา</span>
-          <input id="searchInput" type="search" placeholder="พิมพ์บางตัวอักษร เช่น para, 5105, cream, antidote">
-        </label>
-        <button id="addBtn" class="primary-btn">+ เพิ่มรายการใหม่</button>
+      <section class="summary-grid">
+        <article class="summary-card">
+          <span>ทั้งหมด</span>
+          <strong id="totalCount">0</strong>
+        </article>
+        <article class="summary-card">
+          <span>ผลการค้นหา</span>
+          <strong id="filteredCount">0</strong>
+        </article>
+        <article class="summary-card warning">
+          <span>หลัง Discount ต่ำกว่าทุน</span>
+          <strong id="negativeCount">0</strong>
+        </article>
+      </section>
+
+      <div id="cardGrid" class="card-grid" aria-live="polite"></div>
+      <div class="load-more-wrap">
+        <button id="loadMoreBtn" class="btn secondary hidden">แสดงเพิ่ม</button>
       </div>
-      <p id="resultCount" class="result-count">-</p>
-      <div id="cardsGrid" class="cards-grid"></div>
     </section>
 
     <section id="calculatorTab" class="tab-panel">
-      <div class="calculator-grid">
-        <article class="calc-card">
+      <div class="calc-grid">
+        <article class="panel-card">
           <h2>คำนวณราคาขายจาก % Gross Margin</h2>
-          <p class="formula">ราคาขาย = ราคาต้นทุน / (1 - Gross Margin% / 100)</p>
-          <label>ราคาต้นทุน
-            <input id="costForGm" type="number" step="0.01" placeholder="เช่น 100">
-          </label>
-          <label>Gross Margin เป้าหมาย (%)
-            <input id="targetGm" type="number" step="0.01" placeholder="เช่น 35">
-          </label>
-          <div class="calc-result">
-            <span>ราคาขายที่ควรตั้ง</span>
-            <strong id="priceFromGmResult">-</strong>
-          </div>
+          <p class="hint">สูตร: ราคาขาย = ราคาต้นทุน / (1 - Gross margin / 100)</p>
+          <label>ราคาต้นทุน</label>
+          <input id="calcCostA" type="number" step="0.01" placeholder="เช่น 100" />
+          <label>% Gross Margin ที่ต้องการ</label>
+          <input id="calcMarginA" type="number" step="0.01" placeholder="เช่น 30" />
+          <button id="calcPriceBtn" class="btn primary full">คำนวณราคาขาย</button>
+          <output id="calcPriceResult" class="result-box">-</output>
         </article>
 
-        <article class="calc-card">
+        <article class="panel-card">
           <h2>คำนวณ % Gross Margin จากราคาขาย</h2>
-          <p class="formula">Gross margin = 100*((ราคาขาย-ราคาต้นทุน)/ราคาขาย)</p>
-          <label>ราคาต้นทุน
-            <input id="costForSale" type="number" step="0.01" placeholder="เช่น 100">
-          </label>
-          <label>ราคาขาย
-            <input id="salePrice" type="number" step="0.01" placeholder="เช่น 150">
-          </label>
-          <div class="calc-result">
-            <span>Gross Margin</span>
-            <strong id="gmFromPriceResult">-</strong>
-          </div>
+          <p class="hint">Gross margin = 100*((ราคาขาย - ราคาต้นทุน)/ราคาขาย)</p>
+          <label>ราคาต้นทุน</label>
+          <input id="calcCostB" type="number" step="0.01" placeholder="เช่น 100" />
+          <label>ราคาขาย</label>
+          <input id="calcSaleB" type="number" step="0.01" placeholder="เช่น 150" />
+          <button id="calcMarginBtn" class="btn primary full">คำนวณ Gross Margin</button>
+          <output id="calcMarginResult" class="result-box">-</output>
         </article>
       </div>
     </section>
+
+    <section id="settingsTab" class="tab-panel">
+      <article class="panel-card settings-card">
+        <h2>ตรวจสอบการเชื่อมต่อ</h2>
+        <p>URL ปัจจุบัน:</p>
+        <code id="currentUrl">-</code>
+        <div class="settings-actions">
+          <button id="pingBtn" class="btn secondary">ทดสอบ Apps Script</button>
+          <button id="copyDiagBtn" class="btn secondary">Copy Diagnostics</button>
+        </div>
+        <pre id="diagBox" class="diag-box">-</pre>
+      </article>
+    </section>
   </main>
 
-  <div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="modal">
-      <div class="modal-header">
+  <dialog id="drugDialog" class="modal">
+    <form method="dialog" class="modal-shell">
+      <header class="modal-header">
         <div>
-          <h2 id="modalTitle">รายละเอียด</h2>
-          <p id="modalSubtitle">-</p>
+          <p id="modalMode" class="eyebrow">รายละเอียด</p>
+          <h2 id="modalTitle">-</h2>
+          <p id="modalSubtitle" class="subtext">-</p>
         </div>
-        <button id="closeModalBtn" class="icon-btn" aria-label="close">×</button>
+        <button class="icon-btn" value="cancel" aria-label="Close">×</button>
+      </header>
+
+      <div id="negativeAlert" class="negative-alert hidden"></div>
+
+      <div class="modal-actions top-actions">
+        <button id="autoPriceBtn" type="button" class="btn secondary">คำนวณราคาอัตโนมัติ</button>
+        <button id="saveBtn" type="button" class="btn primary">บันทึกลง Google Sheet</button>
       </div>
-      <div id="modalBody" class="modal-body"></div>
-      <div class="modal-footer">
-        <button id="deleteBtn" class="danger-btn">Delete</button>
-        <span class="footer-spacer"></span>
-        <button id="editBtn" class="secondary-btn">Edit</button>
-        <button id="saveBtn" class="primary-btn">Save to Google Sheet</button>
-      </div>
-    </div>
-  </div>
+
+      <section id="detailGrid" class="detail-grid"></section>
+
+      <footer class="modal-actions">
+        <button type="button" id="closeModalBtn" class="btn secondary">ปิด</button>
+        <button type="button" id="saveBtnBottom" class="btn primary">บันทึก</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <button id="floatingBackBtn" class="floating-back hidden" type="button" aria-label="กลับ">← กลับ</button>
+
+  <div id="toast" class="toast hidden"></div>
 
   <script src="config.js"></script>
   <script src="app.js"></script>

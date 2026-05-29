@@ -1,521 +1,730 @@
-'use strict';
+(() => {
+  'use strict';
 
-const CONFIG = window.DRUG_APP_CONFIG || {};
+  const CONFIG = window.DRUG_APP_CONFIG || {};
+  const WEB_APP_URL = (CONFIG.WEB_APP_URL || '').trim();
+  const APP_TOKEN = CONFIG.APP_TOKEN || '';
+  const POLL_INTERVAL_MS = Number(CONFIG.POLL_INTERVAL_MS || 5000);
+  const PAGE_SIZE = Number(CONFIG.PAGE_SIZE || 60);
 
-const state = {
-  headers: [],
-  rows: [],
-  filteredRows: [],
-  selectedRowId: null,
-  modalMode: 'view',
-  saving: false,
-  editing: false,
-  lastServerTime: null,
-  search: ''
-};
-
-const CORE_FIELDS = [
-  'item_code', 'GenercName', 'FullName', 'DosageForm', 'Major Class', 'Sub Class', 'ราคาต้นทุน',
-  'ราคา OPD', 'ราคา IPD', 'ราคา สกย. OPD', 'ราคา สกย. IPD',
-  'ราคา OPD_Foreigner', 'ราคา IPD_Foreigner', 'nhso_heart_price'
-];
-
-const PRICE_FIELDS = [
-  'ราคาต้นทุน', 'ราคา OPD', 'ราคา IPD', 'ราคา สกย. OPD', 'ราคา สกย. IPD',
-  'ราคา OPD_Foreigner', 'ราคา IPD_Foreigner', 'nhso_heart_price'
-];
-
-const CALCULATED_FIELDS = [
-  'gross_margin_opd', 'gross_margin_ipd', 'gross_margin_สกย_opd', 'gross_margin_สกย_ipd',
-  'gross_margin_ipd_foreigner', 'gross_margin_opd_foreigner', 'gross_margin_nhso',
-  'ราคาสกย.OPD Discount 20%', 'ราคา สกย.IPD Discount 20%',
-  'OPD สกย. after discount -Cost', 'ราคา IPD สกย After dis count - Cost'
-];
-
-const READONLY_FIELDS = new Set(['row_id', 'created_at', 'updated_at', 'last_edited_by', ...CALCULATED_FIELDS]);
-
-const $ = selector => document.querySelector(selector);
-const $$ = selector => Array.from(document.querySelectorAll(selector));
-
-function boot() {
-  bindEvents();
-  renderApiWarningIfNeeded();
-  loadData({ showBusy: true });
-  setInterval(() => {
-    if (!state.editing && !document.hidden) loadData({ silent: true });
-  }, Number(CONFIG.POLL_INTERVAL_MS || 5000));
-}
-
-document.addEventListener('DOMContentLoaded', boot);
-
-function bindEvents() {
-  $('#searchInput').addEventListener('input', event => {
-    state.search = event.target.value;
-    applySearchAndRender();
-  });
-
-  $('#refreshBtn').addEventListener('click', () => loadData({ showBusy: true }));
-  $('#addBtn').addEventListener('click', () => openModal(blankRow(), 'add'));
-  $('#closeModalBtn').addEventListener('click', closeModal);
-  $('#modalBackdrop').addEventListener('click', event => {
-    if (event.target.id === 'modalBackdrop') closeModal();
-  });
-
-  $('#editBtn').addEventListener('click', () => {
-    const row = getSelectedRow();
-    if (row) openModal(row, 'edit');
-  });
-
-  $('#deleteBtn').addEventListener('click', async () => {
-    const row = getSelectedRow();
-    if (!row) return;
-    const name = row.FullName || row.item_code || 'รายการนี้';
-    if (!confirm(`ต้องการลบ ${name} ใช่หรือไม่?`)) return;
-    await submitPayload('delete', { row_id: row.row_id }, { refresh: true });
-    closeModal();
-  });
-
-  $('#saveBtn').addEventListener('click', () => saveModalForm({ manual: true }));
-
-  $$('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
-  });
-
-  bindCalculator();
-}
-
-function renderApiWarningIfNeeded() {
-  const url = String(CONFIG.WEB_APP_URL || '');
-  if (!url || url.includes('PASTE_APPS_SCRIPT')) {
-    setStatus('ยังไม่ได้ตั้งค่า Apps Script URL ใน config.js', 'warn');
-    $('#cardsGrid').innerHTML = `<div class="empty-state">
-      <h2>ตั้งค่า API ก่อนใช้งาน</h2>
-      <p>เปิดไฟล์ <b>config.js</b> แล้วใส่ URL ที่ได้จาก Apps Script Web App ตรง <code>WEB_APP_URL</code></p>
-    </div>`;
-  }
-}
-
-async function loadData(options = {}) {
-  if (!CONFIG.WEB_APP_URL || CONFIG.WEB_APP_URL.includes('PASTE_APPS_SCRIPT')) return;
-  if (options.showBusy) setStatus('กำลังโหลดข้อมูล...', 'busy');
-  try {
-    const res = await jsonp('list', {});
-    if (!res.ok) throw new Error(res.error || 'Load failed');
-    state.headers = res.headers || [];
-    state.rows = res.rows || [];
-    state.lastServerTime = res.serverTime || null;
-    applySearchAndRender();
-    renderStats();
-    setStatus(`เชื่อมต่อแล้ว · ${formatDateTime(state.lastServerTime)}`, 'ok');
-  } catch (err) {
-    setStatus(`โหลดข้อมูลไม่ได้: ${err.message}`, 'error');
-  }
-}
-
-function jsonp(action, params = {}) {
-  return new Promise((resolve, reject) => {
-    const callbackName = `__drug_cb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const url = new URL(CONFIG.WEB_APP_URL);
-    url.searchParams.set('action', action);
-    url.searchParams.set('callback', callbackName);
-    if (CONFIG.APP_TOKEN) url.searchParams.set('token', CONFIG.APP_TOKEN);
-    Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-
-    const script = document.createElement('script');
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('API timeout'));
-    }, 20000);
-
-    function cleanup() {
-      clearTimeout(timer);
-      delete window[callbackName];
-      script.remove();
-    }
-
-    window[callbackName] = data => {
-      cleanup();
-      resolve(data);
-    };
-
-    script.onerror = () => {
-      cleanup();
-      reject(new Error('API script load failed'));
-    };
-
-    script.src = url.toString();
-    document.head.appendChild(script);
-  });
-}
-
-function postForm(action, payload) {
-  return new Promise((resolve, reject) => {
-    const iframeName = `hidden_post_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const iframe = document.createElement('iframe');
-    iframe.name = iframeName;
-    iframe.className = 'hidden-frame';
-
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = `${CONFIG.WEB_APP_URL}?action=${encodeURIComponent(action)}`;
-    form.target = iframeName;
-    form.className = 'hidden-frame';
-
-    addHidden(form, 'payload', JSON.stringify(payload));
-    if (CONFIG.APP_TOKEN) addHidden(form, 'token', CONFIG.APP_TOKEN);
-
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error('Save timeout'));
-    }, 25000);
-
-    function cleanup() {
-      clearTimeout(timer);
-      form.remove();
-      iframe.remove();
-    }
-
-    iframe.addEventListener('load', () => {
-      cleanup();
-      resolve({ ok: true });
-    });
-
-    document.body.appendChild(iframe);
-    document.body.appendChild(form);
-    form.submit();
-  });
-}
-
-function addHidden(form, name, value) {
-  const input = document.createElement('input');
-  input.type = 'hidden';
-  input.name = name;
-  input.value = value;
-  form.appendChild(input);
-}
-
-function applySearchAndRender() {
-  const query = state.search.trim().toLowerCase();
-  const tokens = query.split(/\s+/).filter(Boolean);
-
-  state.filteredRows = !tokens.length
-    ? state.rows.slice(0, 120)
-    : state.rows.filter(row => {
-        const haystack = [
-          row.item_code,
-          row.GenercName,
-          row.FullName,
-          row.DosageForm,
-          row['Major Class'],
-          row['Sub Class']
-        ].join(' ').toLowerCase();
-        return tokens.every(token => haystack.includes(token));
-      }).slice(0, 120);
-
-  renderCards();
-  $('#resultCount').textContent = `${state.filteredRows.length.toLocaleString()} รายการที่แสดง / ${state.rows.length.toLocaleString()} รายการทั้งหมด`;
-}
-
-function renderCards() {
-  const grid = $('#cardsGrid');
-  if (!state.filteredRows.length) {
-    grid.innerHTML = `<div class="empty-state"><h2>ไม่พบข้อมูล</h2><p>ลองพิมพ์บางตัวอักษรของชื่อยา รหัสยา หรือกลุ่มยา</p></div>`;
-    return;
-  }
-
-  grid.innerHTML = state.filteredRows.map(row => {
-    const opdDiff = toNumber(row['OPD สกย. after discount -Cost']);
-    const ipdDiff = toNumber(row['ราคา IPD สกย After dis count - Cost']);
-    const isNegative = opdDiff < 0 || ipdDiff < 0;
-    return `<button class="drug-card ${isNegative ? 'danger-card' : ''}" data-id="${escapeHtml(row.row_id)}">
-      <div class="card-topline">
-        <span class="pill">${escapeHtml(row.DosageForm || '-')}</span>
-        <span class="code">${escapeHtml(row.item_code || '-')}</span>
-      </div>
-      <h3>${escapeHtml(row.FullName || '(ไม่มีชื่อยา)')}</h3>
-      <p>${escapeHtml(row['Major Class'] || '')}</p>
-      <div class="price-grid">
-        <span><b>Cost</b>${money(row['ราคาต้นทุน'])}</span>
-        <span><b>OPD</b>${money(row['ราคา OPD'])}</span>
-        <span><b>IPD</b>${money(row['ราคา IPD'])}</span>
-        <span><b>สกย.OPD</b>${money(row['ราคา สกย. OPD'])}</span>
-      </div>
-      ${isNegative ? '<div class="warning-line">ส่วนต่างหลัง Discount ติดลบ</div>' : ''}
-    </button>`;
-  }).join('');
-
-  $$('.drug-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const row = state.rows.find(item => String(item.row_id) === String(card.dataset.id));
-      if (row) openModal(row, 'view');
-    });
-  });
-}
-
-function renderStats() {
-  const total = state.rows.length;
-  const negativeCount = state.rows.filter(row =>
-    toNumber(row['OPD สกย. after discount -Cost']) < 0 ||
-    toNumber(row['ราคา IPD สกย After dis count - Cost']) < 0
-  ).length;
-  const avgGmOpd = average(state.rows.map(row => toNumber(row.gross_margin_opd)).filter(Number.isFinite));
-
-  $('#totalCount').textContent = total.toLocaleString();
-  $('#negativeCount').textContent = negativeCount.toLocaleString();
-  $('#avgGmOpd').textContent = Number.isFinite(avgGmOpd) ? `${avgGmOpd.toFixed(1)}%` : '-';
-}
-
-function openModal(row, mode = 'view') {
-  state.selectedRowId = row.row_id || null;
-  state.modalMode = mode;
-  state.editing = mode !== 'view';
-
-  $('#modalTitle').textContent = mode === 'add' ? 'เพิ่มรายการยาใหม่' : (row.FullName || row.item_code || 'รายละเอียดรายการ');
-  $('#modalSubtitle').textContent = mode === 'view' ? 'คลิก Edit เพื่อแก้ไขข้อมูล' : 'ระบบจะบันทึกลง Google Sheet เมื่อกด Save';
-  $('#editBtn').hidden = mode !== 'view';
-  $('#deleteBtn').hidden = mode === 'add';
-  $('#saveBtn').hidden = mode === 'view';
-
-  $('#modalBody').innerHTML = buildDetailForm(row, mode);
-  $('#modalBackdrop').classList.add('show');
-
-  if (mode !== 'view') bindFormEvents(mode);
-}
-
-function closeModal() {
-  state.selectedRowId = null;
-  state.editing = false;
-  $('#modalBackdrop').classList.remove('show');
-  $('#modalBody').innerHTML = '';
-}
-
-function getSelectedRow() {
-  return state.rows.find(row => String(row.row_id) === String(state.selectedRowId));
-}
-
-function buildDetailForm(row, mode) {
-  const fields = orderedHeaders();
-  const readonly = mode === 'view';
-  const groups = [
-    { title: 'ข้อมูลยา', fields: fields.filter(f => CORE_FIELDS.includes(f) && !PRICE_FIELDS.includes(f)) },
-    { title: 'ราคา', fields: fields.filter(f => PRICE_FIELDS.includes(f)) },
-    { title: 'คำนวณ / Gross margin', fields: fields.filter(f => CALCULATED_FIELDS.includes(f)) },
-    { title: 'ข้อมูลระบบ', fields: fields.filter(f => ['row_id', 'created_at', 'updated_at', 'last_edited_by'].includes(f)) }
-  ].filter(group => group.fields.length);
-
-  return `<form id="drugForm" class="detail-form">
-    ${groups.map(group => `<section class="form-section">
-      <h3>${escapeHtml(group.title)}</h3>
-      <div class="form-grid">
-        ${group.fields.map(field => renderField(field, row[field], readonly || READONLY_FIELDS.has(field), mode)).join('')}
-      </div>
-    </section>`).join('')}
-    <div id="saveHint" class="save-hint"></div>
-  </form>`;
-}
-
-function renderField(field, value, readonly, mode) {
-  const isNumber = PRICE_FIELDS.includes(field) || CALCULATED_FIELDS.includes(field) || field.startsWith('gross_margin');
-  const inputType = isNumber ? 'number' : 'text';
-  const step = isNumber ? ' step="0.01"' : '';
-  const readonlyAttr = readonly ? ' readonly disabled' : '';
-  const valueText = value == null ? '' : String(value);
-  const helper = field.startsWith('gross_margin') ? '<small>สูตร: 100*((ราคาขาย-ราคาต้นทุน)/ราคาขาย)</small>' : '';
-  return `<label class="field">
-    <span>${escapeHtml(field)}</span>
-    <input name="${escapeHtml(field)}" type="${inputType}" value="${escapeHtml(valueText)}"${step}${readonlyAttr} data-original="${escapeHtml(valueText)}" data-field="${escapeHtml(field)}">
-    ${helper}
-  </label>`;
-}
-
-function bindFormEvents(mode) {
-  const form = $('#drugForm');
-  if (!form) return;
-
-  form.addEventListener('input', event => {
-    const input = event.target.closest('input');
-    if (!input || input.disabled) return;
-    input.dataset.touched = 'true';
-    if (mode === 'add' && PRICE_FIELDS.includes(input.name)) autoFillNewItemPrices(input.name);
-  });
-}
-
-function autoFillNewItemPrices(changedName) {
-  const form = $('#drugForm');
-  const field = name => form.querySelector(`[name="${cssEscape(name)}"]`);
-  const get = name => toNumber(field(name)?.value);
-  const setIfAllowed = (name, value) => {
-    const input = field(name);
-    if (!input || input.dataset.touched === 'true') return;
-    if (Number.isFinite(value)) input.value = round2(value);
+  const F = {
+    rowId: 'row_id',
+    itemCode: 'item_code',
+    fullName: 'FullName',
+    generic: 'GenericName',
+    cost: 'ราคาต้นทุน',
+    opd: 'ราคา OPD',
+    ipd: 'ราคา IPD',
+    skyOpd: 'ราคา สกย. OPD',
+    skyIpd: 'ราคา สกย. IPD',
+    ipdForeign: 'ราคา IPD_Foreigner',
+    opdForeign: 'ราคา OPD_Foreigner',
+    nhso: 'nhso_heart_price',
+    skyOpdDisc: 'ราคาสกย.OPD Discount 20%',
+    skyIpdDisc: 'ราคา สกย.IPD Discount 20%',
+    skyOpdAfterCost: 'OPD สกย. after discount -Cost',
+    skyIpdAfterCost: 'ราคา IPD สกย After dis count - Cost',
+    updatedAt: 'updated_at',
+    createdAt: 'created_at'
   };
 
-  let opd = get('ราคา OPD');
-  let sakyOpd = get('ราคา สกย. OPD');
+  const IMPORTANT_ORDER = [
+    F.itemCode,
+    F.fullName,
+    F.generic,
+    'Unit',
+    'Strength',
+    'DosageForm',
+    F.cost,
+    F.opd,
+    F.ipd,
+    F.skyOpd,
+    F.skyIpd,
+    F.opdForeign,
+    F.ipdForeign,
+    F.nhso,
+    F.skyOpdDisc,
+    F.skyIpdDisc,
+    F.skyOpdAfterCost,
+    F.skyIpdAfterCost,
+    'gross_margin_opd',
+    'gross_margin_ipd',
+    'gross_margin_sky_opd',
+    'gross_margin_sky_ipd',
+    F.rowId,
+    F.updatedAt,
+    F.createdAt
+  ];
 
-  if (!Number.isFinite(opd) && Number.isFinite(sakyOpd)) {
-    opd = sakyOpd;
-    setIfAllowed('ราคา OPD', opd);
+  const PRICE_FIELDS = new Set([
+    F.cost,
+    F.opd,
+    F.ipd,
+    F.skyOpd,
+    F.skyIpd,
+    F.ipdForeign,
+    F.opdForeign,
+    F.nhso,
+    F.skyOpdDisc,
+    F.skyIpdDisc,
+    F.skyOpdAfterCost,
+    F.skyIpdAfterCost
+  ]);
+
+  const EDITABLE_EXCLUDE = new Set([F.rowId, F.updatedAt, F.createdAt, F.skyOpdDisc, F.skyIpdDisc, F.skyOpdAfterCost, F.skyIpdAfterCost]);
+
+  const state = {
+    headers: [],
+    rows: [],
+    filteredRows: [],
+    visibleCount: PAGE_SIZE,
+    current: null,
+    isNew: false,
+    saving: false,
+    lastPayload: null,
+    pollHandle: null
+  };
+
+  const el = {
+    syncStatus: byId('syncStatus'),
+    syncText: byId('syncText'),
+    syncTime: byId('syncTime'),
+    searchInput: byId('searchInput'),
+    refreshBtn: byId('refreshBtn'),
+    addBtn: byId('addBtn'),
+    totalCount: byId('totalCount'),
+    filteredCount: byId('filteredCount'),
+    negativeCount: byId('negativeCount'),
+    cardGrid: byId('cardGrid'),
+    loadMoreBtn: byId('loadMoreBtn'),
+    dialog: byId('drugDialog'),
+    modalMode: byId('modalMode'),
+    modalTitle: byId('modalTitle'),
+    modalSubtitle: byId('modalSubtitle'),
+    detailGrid: byId('detailGrid'),
+    negativeAlert: byId('negativeAlert'),
+    closeModalBtn: byId('closeModalBtn'),
+    saveBtn: byId('saveBtn'),
+    saveBtnBottom: byId('saveBtnBottom'),
+    autoPriceBtn: byId('autoPriceBtn'),
+    toast: byId('toast'),
+    calcCostA: byId('calcCostA'),
+    calcMarginA: byId('calcMarginA'),
+    calcPriceBtn: byId('calcPriceBtn'),
+    calcPriceResult: byId('calcPriceResult'),
+    calcCostB: byId('calcCostB'),
+    calcSaleB: byId('calcSaleB'),
+    calcMarginBtn: byId('calcMarginBtn'),
+    calcMarginResult: byId('calcMarginResult'),
+    currentUrl: byId('currentUrl'),
+    pingBtn: byId('pingBtn'),
+    copyDiagBtn: byId('copyDiagBtn'),
+    diagBox: byId('diagBox'),
+    floatingBackBtn: byId('floatingBackBtn')
+  };
+
+  init();
+
+  function init() {
+    el.currentUrl.textContent = WEB_APP_URL || 'ยังไม่ได้ตั้งค่า WEB_APP_URL ใน config.js';
+    bindEvents();
+
+    if (!isConfigured()) {
+      setStatus('error', 'ยังไม่ได้ตั้งค่า Apps Script URL', 'กรุณาแก้ไฟล์ config.js');
+      renderEmpty('ยังไม่ได้ตั้งค่า WEB_APP_URL ใน config.js');
+      return;
+    }
+
+    loadData({ manual: true });
+    state.pollHandle = window.setInterval(() => loadData({ silent: true }), POLL_INTERVAL_MS);
   }
-  if (!Number.isFinite(sakyOpd) && Number.isFinite(opd)) {
-    sakyOpd = opd;
-    setIfAllowed('ราคา สกย. OPD', sakyOpd);
+
+  function bindEvents() {
+    document.querySelectorAll('.tab').forEach((btn) => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
+    el.searchInput.addEventListener('input', debounce(() => {
+      state.visibleCount = PAGE_SIZE;
+      filterRows();
+      renderCards();
+    }, 120));
+
+    el.refreshBtn.addEventListener('click', () => loadData({ manual: true }));
+    el.addBtn.addEventListener('click', openNewModal);
+    el.loadMoreBtn.addEventListener('click', () => {
+      state.visibleCount += PAGE_SIZE;
+      renderCards();
+    });
+
+    el.closeModalBtn.addEventListener('click', () => el.dialog.close());
+    el.saveBtn.addEventListener('click', saveCurrent);
+    el.saveBtnBottom.addEventListener('click', saveCurrent);
+    el.autoPriceBtn.addEventListener('click', autoFillPrices);
+
+    el.calcPriceBtn.addEventListener('click', calculateSalePrice);
+    el.calcMarginBtn.addEventListener('click', calculateGrossMargin);
+    el.pingBtn.addEventListener('click', ping);
+    el.copyDiagBtn.addEventListener('click', copyDiagnostics);
+
+    if (el.floatingBackBtn) {
+      el.floatingBackBtn.addEventListener('click', handleFloatingBack);
+      window.addEventListener('scroll', debounce(updateFloatingBackButton, 80), { passive: true });
+      window.addEventListener('resize', debounce(updateFloatingBackButton, 120));
+    }
+
+    el.dialog.addEventListener('close', updateFloatingBackButton);
   }
 
-  if (Number.isFinite(opd)) {
-    const ipdDefault = round2(opd * 1.3);
-    setIfAllowed('ราคา IPD', ipdDefault);
-    setIfAllowed('ราคา สกย. IPD', ipdDefault);
-    setIfAllowed('ราคา OPD_Foreigner', round2(opd * 1.3));
-    const currentIpd = Number.isFinite(get('ราคา IPD')) ? get('ราคา IPD') : ipdDefault;
-    setIfAllowed('ราคา IPD_Foreigner', round2(currentIpd * 1.3));
+  function byId(id) {
+    return document.getElementById(id);
   }
-}
 
-async function saveModalForm() {
-  const form = $('#drugForm');
-  if (!form || state.saving) return;
-  const payload = formToPayload(form);
-  const action = state.modalMode === 'add' ? 'add' : 'save';
-
-  if (!confirmNegativeIfNeeded(payload)) return;
-  await submitPayload(action, payload, { refresh: true });
-  closeModal();
-}
-
-function formToPayload(form) {
-  const payload = {};
-  state.headers.forEach(h => {
-    const input = form.querySelector(`[name="${cssEscape(h)}"]`);
-    if (input && !input.disabled) payload[h] = input.value;
-  });
-
-  // Preserve row_id for editing because its input is disabled/read-only.
-  if (state.modalMode !== 'add') payload.row_id = state.selectedRowId;
-  return payload;
-}
-
-function confirmNegativeIfNeeded(payload) {
-  const cost = toNumber(payload['ราคาต้นทุน']);
-  const sakyOpd = toNumber(payload['ราคา สกย. OPD'] || payload['ราคา OPD']);
-  const sakyIpd = toNumber(payload['ราคา สกย. IPD'] || payload['ราคา IPD']);
-  const opdDiff = Number.isFinite(sakyOpd) && Number.isFinite(cost) ? sakyOpd * 0.8 - cost : 0;
-  const ipdDiff = Number.isFinite(sakyIpd) && Number.isFinite(cost) ? sakyIpd * 0.8 - cost : 0;
-
-  if (opdDiff < 0 || ipdDiff < 0) {
-    return confirm(`พบส่วนต่างหลัง Discount 20% ติดลบ\n\nOPD: ${money(opdDiff)}\nIPD: ${money(ipdDiff)}\n\nต้องการบันทึกต่อหรือไม่?`);
+  function isConfigured() {
+    return WEB_APP_URL && !WEB_APP_URL.includes('PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE');
   }
-  return true;
-}
 
-async function submitPayload(action, payload, options = {}) {
-  state.saving = true;
-  setStatus('กำลังบันทึก...', 'busy');
-  $('#saveHint').textContent = 'กำลังบันทึกลง Google Sheet...';
-  try {
-    await postForm(action, payload);
-    setStatus('บันทึกแล้ว กำลัง refresh ข้อมูล...', 'ok');
-    if (options.refresh) await loadData({ silent: true });
-  } catch (err) {
-    setStatus(`บันทึกไม่ได้: ${err.message}`, 'error');
-  } finally {
-    state.saving = false;
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tabId));
+    document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === tabId));
+    updateFloatingBackButton();
   }
-}
 
-function blankRow() {
-  const row = {};
-  state.headers.forEach(h => { row[h] = ''; });
-  return row;
-}
+  function handleFloatingBack() {
+    if (el.dialog && el.dialog.open) {
+      el.dialog.close();
+      return;
+    }
 
-function orderedHeaders() {
-  const system = ['row_id', 'created_at', 'updated_at', 'last_edited_by'];
-  const known = [...CORE_FIELDS, ...PRICE_FIELDS, ...CALCULATED_FIELDS, ...system];
-  const result = [];
-  known.forEach(h => {
-    if (state.headers.includes(h) && !result.includes(h)) result.push(h);
-  });
-  state.headers.forEach(h => {
-    if (!result.includes(h)) result.push(h);
-  });
-  return result;
-}
+    const activePanel = document.querySelector('.tab-panel.active');
+    if (activePanel && activePanel.id !== 'databaseTab') {
+      switchTab('databaseTab');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
 
-function switchTab(tabName) {
-  $$('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
-  $$('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === `${tabName}Tab`));
-}
+    if (window.scrollY > 120) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
 
-function bindCalculator() {
-  ['costForGm', 'targetGm'].forEach(id => $(`#${id}`).addEventListener('input', calculatePriceFromGm));
-  ['costForSale', 'salePrice'].forEach(id => $(`#${id}`).addEventListener('input', calculateGmFromSale));
-}
-
-function calculatePriceFromGm() {
-  const cost = toNumber($('#costForGm').value);
-  const gm = toNumber($('#targetGm').value);
-  if (!Number.isFinite(cost) || !Number.isFinite(gm) || gm >= 100) {
-    $('#priceFromGmResult').textContent = '-';
-    return;
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   }
-  $('#priceFromGmResult').textContent = money(cost / (1 - gm / 100));
-}
 
-function calculateGmFromSale() {
-  const cost = toNumber($('#costForSale').value);
-  const sale = toNumber($('#salePrice').value);
-  if (!Number.isFinite(cost) || !Number.isFinite(sale) || sale <= 0) {
-    $('#gmFromPriceResult').textContent = '-';
-    return;
+  function updateFloatingBackButton() {
+    if (!el.floatingBackBtn) return;
+
+    const isMobile = window.matchMedia('(max-width: 760px)').matches;
+    const activePanel = document.querySelector('.tab-panel.active');
+    const shouldShow = isMobile && (
+      (el.dialog && el.dialog.open) ||
+      (activePanel && activePanel.id !== 'databaseTab') ||
+      window.scrollY > 120
+    );
+
+    el.floatingBackBtn.classList.toggle('hidden', !shouldShow);
   }
-  $('#gmFromPriceResult').textContent = `${(100 * ((sale - cost) / sale)).toFixed(2)}%`;
-}
 
-function average(values) {
-  if (!values.length) return NaN;
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
+  async function loadData(options = {}) {
+    if (!isConfigured()) return;
+    if (!options.silent) setStatus('loading', 'กำลังโหลดข้อมูล...', 'กำลังเชื่อมต่อ Google Sheet');
 
-function toNumber(value) {
-  if (value == null || value === '') return NaN;
-  const n = Number(String(value).replace(/,/g, ''));
-  return Number.isFinite(n) ? n : NaN;
-}
+    try {
+      const payload = await jsonp('list', { token: APP_TOKEN });
+      if (!payload || payload.ok === false) throw new Error(payload?.error || 'ไม่สามารถโหลดข้อมูลได้');
 
-function round2(value) {
-  return Math.round(Number(value) * 100) / 100;
-}
+      state.lastPayload = payload;
+      state.headers = Array.isArray(payload.headers) ? payload.headers.filter(Boolean) : [];
+      state.rows = Array.isArray(payload.rows) ? payload.rows : [];
+      state.visibleCount = options.silent ? state.visibleCount : PAGE_SIZE;
+      filterRows();
+      renderCards();
+      updateSummary();
+      updateFloatingBackButton();
+      setStatus('ok', `โหลดข้อมูลแล้ว ${state.rows.length.toLocaleString()} รายการ`, new Date().toLocaleString('th-TH'));
+    } catch (err) {
+      setStatus('error', 'โหลดข้อมูลไม่สำเร็จ', err.message);
+      renderDiagnostic(err);
+      if (!options.silent) showToast(`โหลดข้อมูลไม่สำเร็จ: ${err.message}`, 'error');
+    }
+  }
 
-function money(value) {
-  const n = typeof value === 'number' ? value : toNumber(value);
-  if (!Number.isFinite(n)) return '-';
-  return n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+  function jsonp(action, params = {}) {
+    return new Promise((resolve, reject) => {
+      const callbackName = `drugAppCb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const script = document.createElement('script');
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('Request timeout'));
+      }, 20000);
 
-function formatDateTime(value) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'medium' });
-}
+      window[callbackName] = (data) => {
+        cleanup();
+        resolve(data);
+      };
 
-function setStatus(message, type = 'ok') {
-  const el = $('#statusText');
-  el.textContent = message;
-  el.className = `status ${type}`;
-}
+      const url = new URL(WEB_APP_URL);
+      url.searchParams.set('action', action);
+      url.searchParams.set('callback', callbackName);
+      url.searchParams.set('_', Date.now().toString());
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
+      });
 
-function escapeHtml(value) {
-  return String(value == null ? '' : value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
+      script.src = url.toString();
+      script.onerror = () => {
+        cleanup();
+        reject(new Error('เชื่อมต่อ Apps Script ไม่ได้ กรุณาตรวจ URL / permission'));
+      };
+      document.body.appendChild(script);
 
-function cssEscape(value) {
-  if (window.CSS && typeof window.CSS.escape === 'function') return CSS.escape(value);
-  return String(value).replace(/"/g, '\\"');
-}
+      function cleanup() {
+        window.clearTimeout(timeout);
+        delete window[callbackName];
+        script.remove();
+      }
+    });
+  }
+
+  function postAction(action, payload) {
+    const url = new URL(WEB_APP_URL);
+    url.searchParams.set('action', action);
+    if (APP_TOKEN) url.searchParams.set('token', APP_TOKEN);
+
+    return fetch(url.toString(), {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token: APP_TOKEN, action, payload })
+    });
+  }
+
+  function filterRows() {
+    const keyword = normalizeText(el.searchInput.value);
+    if (!keyword) {
+      state.filteredRows = [...state.rows];
+      updateSummary();
+      return;
+    }
+
+    state.filteredRows = state.rows.filter((row) => {
+      const haystack = state.headers.map((h) => row[h]).join(' | ');
+      return normalizeText(haystack).includes(keyword);
+    });
+    updateSummary();
+  }
+
+  function renderCards() {
+    if (!state.filteredRows.length) {
+      renderEmpty(el.searchInput.value ? 'ไม่พบรายการที่ค้นหา' : 'ยังไม่มีข้อมูล');
+      el.loadMoreBtn.classList.add('hidden');
+      return;
+    }
+
+    const rows = state.filteredRows.slice(0, state.visibleCount);
+    el.cardGrid.innerHTML = rows.map((row, index) => cardTemplate(row, index)).join('');
+    el.cardGrid.querySelectorAll('[data-open-index]').forEach((card) => {
+      card.addEventListener('click', () => {
+        const rowIndex = Number(card.dataset.openIndex);
+        openEditModal(state.filteredRows[rowIndex]);
+      });
+    });
+
+    el.loadMoreBtn.classList.toggle('hidden', state.visibleCount >= state.filteredRows.length);
+  }
+
+  function cardTemplate(row, index) {
+    const title = safe(row[F.fullName]) || safe(row[F.generic]) || '(ไม่มีชื่อยา)';
+    const code = safe(row[F.itemCode]) || safe(row[F.rowId]) || '-';
+    const cost = fmtMoney(row[F.cost]);
+    const opd = fmtMoney(row[F.opd]);
+    const ipd = fmtMoney(row[F.ipd]);
+    const gm = fmtPercent(grossMargin(row[F.cost], row[F.opd]));
+    const neg = hasNegativeAfterDiscount(row);
+
+    return `
+      <article class="drug-card ${neg ? 'negative' : ''}" data-open-index="${index}" tabindex="0" role="button">
+        <div class="card-top">
+          <span class="pill">${escapeHtml(code)}</span>
+          ${neg ? '<span class="pill danger">ต่ำกว่าทุน</span>' : ''}
+        </div>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(safe(row[F.generic]) || safe(row.Unit) || 'คลิกเพื่อดูรายละเอียด')}</p>
+        <div class="price-row">
+          <span><small>Cost</small><strong>${cost}</strong></span>
+          <span><small>OPD</small><strong>${opd}</strong></span>
+          <span><small>IPD</small><strong>${ipd}</strong></span>
+        </div>
+        <div class="gm-line">GM OPD: ${gm}</div>
+      </article>
+    `;
+  }
+
+  function renderEmpty(message) {
+    el.cardGrid.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+  }
+
+  function updateSummary() {
+    el.totalCount.textContent = state.rows.length.toLocaleString();
+    el.filteredCount.textContent = state.filteredRows.length.toLocaleString();
+    el.negativeCount.textContent = state.rows.filter(hasNegativeAfterDiscount).length.toLocaleString();
+  }
+
+  function openEditModal(row) {
+    state.isNew = false;
+    state.current = { ...row };
+    openModal('รายละเอียด / แก้ไข', row);
+  }
+
+  function openNewModal() {
+    state.isNew = true;
+    const blank = {};
+    const headers = ensureHeadersForForm();
+    headers.forEach((h) => { blank[h] = ''; });
+    blank[F.rowId] = '';
+    state.current = blank;
+    openModal('เพิ่มรายการใหม่', blank);
+  }
+
+  function ensureHeadersForForm() {
+    const base = state.headers.length ? [...state.headers] : [
+      F.rowId,
+      F.itemCode,
+      F.fullName,
+      F.generic,
+      'Unit',
+      'Strength',
+      'DosageForm',
+      F.cost,
+      F.opd,
+      F.ipd,
+      F.skyOpd,
+      F.skyIpd,
+      F.opdForeign,
+      F.ipdForeign,
+      F.nhso,
+      F.skyOpdDisc,
+      F.skyIpdDisc,
+      F.skyOpdAfterCost,
+      F.skyIpdAfterCost,
+      F.updatedAt,
+      F.createdAt
+    ];
+    return unique([...IMPORTANT_ORDER, ...base]).filter(Boolean);
+  }
+
+  function openModal(mode, row) {
+    const title = safe(row[F.fullName]) || safe(row[F.itemCode]) || 'รายการใหม่';
+    el.modalMode.textContent = mode;
+    el.modalTitle.textContent = title;
+    el.modalSubtitle.textContent = `${safe(row[F.itemCode]) || '-'} · Cost ${fmtMoney(row[F.cost])}`;
+    renderDetailForm();
+    updateNegativeAlert();
+    el.dialog.showModal();
+    updateFloatingBackButton();
+  }
+
+  function renderDetailForm() {
+    const headers = ensureHeadersForForm();
+    const computed = computeFields(state.current || {});
+
+    el.detailGrid.innerHTML = headers.map((header) => {
+      const value = Object.prototype.hasOwnProperty.call(computed, header) ? computed[header] : state.current[header];
+      const displayValue = value === undefined || value === null || value === '' ? '' : String(value);
+      const isReadOnly = EDITABLE_EXCLUDE.has(header);
+      const isNumber = isNumericField(header);
+      const classes = [isReadOnly ? 'readonly' : '', isImportantField(header) ? 'important' : ''].join(' ');
+
+      return `
+        <label class="field ${classes}" data-field-wrap="${escapeAttr(header)}">
+          <span>${escapeHtml(header)}</span>
+          <input
+            data-field="${escapeAttr(header)}"
+            type="${isNumber ? 'number' : 'text'}"
+            step="${isNumber ? '0.01' : ''}"
+            value="${escapeAttr(displayValue)}"
+            ${isReadOnly ? 'readonly' : ''}
+            placeholder="-"
+          />
+        </label>
+      `;
+    }).join('');
+
+    el.detailGrid.querySelectorAll('input[data-field]').forEach((input) => {
+      input.addEventListener('input', () => {
+        const field = input.dataset.field;
+        state.current[field] = input.value;
+        refreshComputedFields();
+      });
+    });
+  }
+
+  function refreshComputedFields() {
+    const computed = computeFields(state.current || {});
+    Object.entries(computed).forEach(([field, value]) => {
+      const input = el.detailGrid.querySelector(`input[data-field="${cssEscape(field)}"]`);
+      if (input && input.readOnly) input.value = value === '' || value === null || value === undefined ? '' : String(value);
+      state.current[field] = value;
+    });
+    updateNegativeAlert();
+  }
+
+  function autoFillPrices() {
+    if (!state.current) return;
+
+    const skyOpd = toNumber(state.current[F.skyOpd]);
+    const skyIpd = toNumber(state.current[F.skyIpd]);
+    const opd = toNumber(state.current[F.opd]);
+
+    if (skyOpd !== null) state.current[F.opd] = round2(skyOpd);
+    const finalOpd = toNumber(state.current[F.opd]) ?? opd ?? 0;
+
+    if (skyIpd !== null) {
+      state.current[F.ipd] = round2(skyIpd);
+    } else if (finalOpd > 0) {
+      state.current[F.ipd] = round2(finalOpd * 1.3);
+    }
+
+    const finalIpd = toNumber(state.current[F.ipd]) ?? 0;
+    if (finalOpd > 0) state.current[F.opdForeign] = round2(finalOpd * 1.3);
+    if (finalIpd > 0) state.current[F.ipdForeign] = round2(finalIpd * 1.3);
+
+    renderDetailForm();
+    updateNegativeAlert();
+    showToast('คำนวณราคาอัตโนมัติแล้ว');
+  }
+
+  function computeFields(row) {
+    const cost = toNumber(row[F.cost]);
+    const skyOpd = toNumber(row[F.skyOpd]);
+    const skyIpd = toNumber(row[F.skyIpd]);
+    const opd = toNumber(row[F.opd]);
+    const ipd = toNumber(row[F.ipd]);
+
+    const result = {};
+    if (skyOpd !== null) result[F.skyOpdDisc] = round2(skyOpd * 0.8);
+    if (skyIpd !== null) result[F.skyIpdDisc] = round2(skyIpd * 0.8);
+    if (result[F.skyOpdDisc] !== undefined && cost !== null) result[F.skyOpdAfterCost] = round2(result[F.skyOpdDisc] - cost);
+    if (result[F.skyIpdDisc] !== undefined && cost !== null) result[F.skyIpdAfterCost] = round2(result[F.skyIpdDisc] - cost);
+    if (cost !== null && opd !== null) result.gross_margin_opd = round2(grossMargin(cost, opd));
+    if (cost !== null && ipd !== null) result.gross_margin_ipd = round2(grossMargin(cost, ipd));
+    if (cost !== null && skyOpd !== null) result.gross_margin_sky_opd = round2(grossMargin(cost, skyOpd));
+    if (cost !== null && skyIpd !== null) result.gross_margin_sky_ipd = round2(grossMargin(cost, skyIpd));
+    return result;
+  }
+
+  function updateNegativeAlert() {
+    const row = { ...(state.current || {}), ...computeFields(state.current || {}) };
+    const messages = [];
+    const opdAfter = toNumber(row[F.skyOpdAfterCost]);
+    const ipdAfter = toNumber(row[F.skyIpdAfterCost]);
+    if (opdAfter !== null && opdAfter < 0) messages.push(`${F.skyOpdAfterCost} = ${fmtMoney(opdAfter)}`);
+    if (ipdAfter !== null && ipdAfter < 0) messages.push(`${F.skyIpdAfterCost} = ${fmtMoney(ipdAfter)}`);
+
+    if (messages.length) {
+      el.negativeAlert.innerHTML = `<strong>คำเตือน:</strong> ราคาหลัง Discount ต่ำกว่าทุน<br>${messages.map(escapeHtml).join('<br>')}`;
+      el.negativeAlert.classList.remove('hidden');
+    } else {
+      el.negativeAlert.classList.add('hidden');
+      el.negativeAlert.innerHTML = '';
+    }
+  }
+
+  async function saveCurrent() {
+    if (!state.current || state.saving) return;
+    refreshComputedFields();
+
+    const merged = { ...(state.current || {}), ...computeFields(state.current || {}) };
+    if (hasNegativeAfterDiscount(merged)) {
+      const ok = window.confirm('พบราคาหลัง Discount ต่ำกว่าทุน ต้องการบันทึกต่อหรือไม่?');
+      if (!ok) return;
+    }
+
+    state.saving = true;
+    el.saveBtn.disabled = true;
+    el.saveBtnBottom.disabled = true;
+    setStatus('loading', 'กำลังบันทึก...', 'ส่งข้อมูลไป Google Sheet');
+
+    try {
+      await postAction(state.isNew ? 'add' : 'save', merged);
+      showToast('บันทึกแล้ว กำลังโหลดข้อมูลล่าสุด...');
+      await delay(1200);
+      await loadData({ manual: true });
+      el.dialog.close();
+    } catch (err) {
+      showToast(`บันทึกไม่สำเร็จ: ${err.message}`, 'error');
+      setStatus('error', 'บันทึกไม่สำเร็จ', err.message);
+    } finally {
+      state.saving = false;
+      el.saveBtn.disabled = false;
+      el.saveBtnBottom.disabled = false;
+    }
+  }
+
+  function hasNegativeAfterDiscount(row) {
+    const computed = computeFields(row || {});
+    const opdAfter = toNumber(row[F.skyOpdAfterCost] ?? computed[F.skyOpdAfterCost]);
+    const ipdAfter = toNumber(row[F.skyIpdAfterCost] ?? computed[F.skyIpdAfterCost]);
+    return (opdAfter !== null && opdAfter < 0) || (ipdAfter !== null && ipdAfter < 0);
+  }
+
+  function calculateSalePrice() {
+    const cost = toNumber(el.calcCostA.value);
+    const margin = toNumber(el.calcMarginA.value);
+    if (cost === null || margin === null || margin >= 100) {
+      el.calcPriceResult.textContent = 'กรุณากรอกต้นทุน และ GM น้อยกว่า 100%';
+      return;
+    }
+    const sale = cost / (1 - margin / 100);
+    el.calcPriceResult.textContent = `ราคาขายที่ควรตั้ง = ${fmtMoney(sale)}`;
+  }
+
+  function calculateGrossMargin() {
+    const cost = toNumber(el.calcCostB.value);
+    const sale = toNumber(el.calcSaleB.value);
+    if (cost === null || sale === null || sale <= 0) {
+      el.calcMarginResult.textContent = 'กรุณากรอกต้นทุน และราคาขายมากกว่า 0';
+      return;
+    }
+    el.calcMarginResult.textContent = `Gross Margin = ${fmtPercent(grossMargin(cost, sale))}`;
+  }
+
+  async function ping() {
+    try {
+      const payload = await jsonp('ping', { token: APP_TOKEN });
+      el.diagBox.textContent = JSON.stringify(payload, null, 2);
+      showToast(payload.ok ? 'เชื่อมต่อ Apps Script สำเร็จ' : 'Apps Script ตอบกลับ error', payload.ok ? 'ok' : 'error');
+    } catch (err) {
+      renderDiagnostic(err);
+      showToast(`ทดสอบไม่สำเร็จ: ${err.message}`, 'error');
+    }
+  }
+
+  async function copyDiagnostics() {
+    const data = {
+      url: WEB_APP_URL,
+      rows: state.rows.length,
+      headers: state.headers,
+      lastPayloadKeys: state.lastPayload ? Object.keys(state.lastPayload) : [],
+      time: new Date().toISOString()
+    };
+    const text = JSON.stringify(data, null, 2);
+    el.diagBox.textContent = text;
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Copy diagnostics แล้ว');
+    } catch {
+      showToast('แสดง diagnostics ในกล่องด้านล่างแล้ว');
+    }
+  }
+
+  function renderDiagnostic(err) {
+    el.diagBox.textContent = JSON.stringify({
+      error: err.message,
+      url: WEB_APP_URL,
+      hint: 'ตรวจสอบ config.js, Apps Script permission, Deploy URL /exec, SHEET_NAME'
+    }, null, 2);
+  }
+
+  function setStatus(type, text, timeText) {
+    el.syncStatus.className = `status-dot ${type}`;
+    el.syncText.textContent = text;
+    el.syncTime.textContent = timeText || '';
+  }
+
+  function showToast(message, type = 'ok') {
+    el.toast.textContent = message;
+    el.toast.className = `toast ${type}`;
+    window.clearTimeout(showToast.timer);
+    showToast.timer = window.setTimeout(() => el.toast.classList.add('hidden'), 3000);
+  }
+
+  function isNumericField(header) {
+    return PRICE_FIELDS.has(header) || header.includes('ราคา') || header.includes('Cost') || header.includes('cost') || header.startsWith('gross_margin') || header === F.nhso;
+  }
+
+  function isImportantField(header) {
+    return IMPORTANT_ORDER.includes(header) || PRICE_FIELDS.has(header) || header.startsWith('gross_margin');
+  }
+
+  function grossMargin(cost, sale) {
+    const c = toNumber(cost);
+    const s = toNumber(sale);
+    if (c === null || s === null || s === 0) return null;
+    return 100 * ((s - c) / s);
+  }
+
+  function toNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    const cleaned = String(value).replace(/,/g, '').trim();
+    if (cleaned === '') return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function round2(value) {
+    const n = toNumber(value);
+    if (n === null) return '';
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
+  function fmtMoney(value) {
+    const n = toNumber(value);
+    if (n === null) return '-';
+    return n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function fmtPercent(value) {
+    const n = toNumber(value);
+    if (n === null) return '-';
+    return `${n.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  }
+
+  function safe(value) {
+    if (value === undefined || value === null) return '';
+    return String(value).trim();
+  }
+
+  function normalizeText(value) {
+    return String(value || '').toLowerCase().normalize('NFKC').replace(/\s+/g, ' ').trim();
+  }
+
+  function unique(arr) {
+    return [...new Set(arr.filter(Boolean))];
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value).replaceAll('`', '&#096;');
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && CSS.escape) return CSS.escape(value);
+    return String(value).replace(/"/g, '\\"');
+  }
+
+  function debounce(fn, wait) {
+    let timer;
+    return (...args) => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => fn(...args), wait);
+    };
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+})();
