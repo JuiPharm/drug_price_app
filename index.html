@@ -169,6 +169,17 @@
         </div>
       </section>
 
+      <!-- Progress Bar (shown at top while importing) -->
+      <div id="importProgressWrap" class="progress-wrap hidden">
+        <div class="progress-bar-bg">
+          <div id="importProgressBar" class="progress-bar-fill" style="width: 0%"></div>
+        </div>
+        <div class="progress-status-line">
+          <span id="importProgressText">กำลังเริ่มนำเข้า...</span>
+          <strong id="importProgressPercent">0%</strong>
+        </div>
+      </div>
+
       <!-- Step 2: Settings & Options (shown after file parsed) -->
       <section id="excelConfigSection" class="excel-config-section hidden">
         <div class="config-grid">
@@ -218,17 +229,6 @@
           </table>
         </div>
       </section>
-
-      <!-- Progress Bar (shown while importing) -->
-      <div id="importProgressWrap" class="progress-wrap hidden">
-        <div class="progress-bar-bg">
-          <div id="importProgressBar" class="progress-bar-fill" style="width: 0%"></div>
-        </div>
-        <div class="progress-status-line">
-          <span id="importProgressText">กำลังเริ่มนำเข้า...</span>
-          <strong id="importProgressPercent">0%</strong>
-        </div>
-      </div>
 
       <footer class="modal-actions excel-footer">
         <button type="button" id="closeExcelModalBtn" class="btn secondary">ปิด</button>

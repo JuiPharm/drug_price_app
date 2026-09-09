@@ -388,17 +388,31 @@
     });
   }
 
-  function postAction(action, payload) {
+  async function postAction(action, payload) {
     const url = new URL(WEB_APP_URL);
     url.searchParams.set('action', action);
     if (APP_TOKEN) url.searchParams.set('token', APP_TOKEN);
 
-    return fetch(url.toString(), {
+    const res = await fetch(url.toString(), {
       method: 'POST',
-      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ token: APP_TOKEN, action, payload })
     });
+
+    if (!res.ok) {
+      throw new Error(`การเชื่อมต่อเซิร์ฟเวอร์ขัดข้อง (HTTP ${res.status})`);
+    }
+
+    try {
+      const data = await res.json();
+      if (data && data.ok === false) {
+        throw new Error(data.error || 'เซิร์ฟเวอร์ส่งข้อความผิดพลาดกลับมา');
+      }
+      return data;
+    } catch (e) {
+      if (e.message && !e.message.includes('Unexpected token')) throw e;
+      return { ok: true };
+    }
   }
 
   function filterRows() {
@@ -1241,47 +1255,104 @@
     const warningCount = rows.filter((r) => r._hasNegative).length;
     const newCount = rows.filter((r) => !r._isUpdate).length;
     const updateCount = rows.filter((r) => r._isUpdate).length;
+    const mode = el.importModeSelect ? el.importModeSelect.value : 'upsert';
 
-    // SweetAlert2 or native confirm before starting import
+    // 1. Close the Excel Dialog so the browser's Top Layer does not obscure SweetAlert2
+    if (el.excelDialog && el.excelDialog.open) {
+      el.excelDialog.close();
+    }
+
+    // 2. SweetAlert2 confirmation dialog in center of screen
     if (window.Swal) {
       const confirmRes = await Swal.fire({
         title: 'ยืนยันการนำเข้าข้อมูล?',
         html: `
-          <div style="text-align: left; font-size: 0.95rem; line-height: 1.8; background: #f8fafc; padding: 1rem 1.2rem; border-radius: 12px; border: 1px solid #e2e8f0;">
-            <div>📁 <strong>รายการทั้งหมดในไฟล์:</strong> ${rows.length.toLocaleString()} รายการ</div>
+          <div style="text-align: left; font-size: 0.95rem; line-height: 1.85; background: #f8fafc; padding: 1rem 1.25rem; border-radius: 14px; border: 1px solid #e2e8f0;">
+            <div>📁 <strong>ไฟล์:</strong> ${escapeHtml(excelState.fileName || 'Excel')} (${rows.length.toLocaleString()} รายการ)</div>
             <div>🟢 <strong>เพิ่มรายการใหม่ (Add):</strong> ${newCount.toLocaleString()} รายการ</div>
             <div>🔵 <strong>อัปเดตรายการเดิม (Update):</strong> ${updateCount.toLocaleString()} รายการ</div>
+            <div>⚙️ <strong>โหมดการทำงาน:</strong> ${mode === 'upsert' ? 'อัปเดตเดิม + เพิ่มใหม่ (Upsert)' : mode === 'add' ? 'เพิ่มเฉพาะรายการใหม่' : 'อัปเดตเฉพาะรายการเดิม'}</div>
             ${warningCount > 0 ? `<div style="color: #dc2626; margin-top: .4rem; font-weight: 600;">⚠️ มีรายการที่ราคาหลังหักส่วนลด 20% ต่ำกว่าต้นทุน ${warningCount.toLocaleString()} รายการ</div>` : ''}
           </div>
         `,
         icon: warningCount > 0 ? 'warning' : 'question',
         showCancelButton: true,
         confirmButtonText: '🚀 เริ่มนำเข้าข้อมูล',
-        cancelButtonText: 'ยกเลิก',
+        cancelButtonText: 'กลับไปแก้ไข / ยกเลิก',
         confirmButtonColor: '#2563eb',
         cancelButtonColor: '#64748b',
+        reverseButtons: true,
         focusConfirm: true
       });
-      if (!confirmRes.isConfirmed) return;
+
+      // If cancelled, re-open the excel dialog so user is right back where they were
+      if (!confirmRes.isConfirmed) {
+        if (el.excelDialog) el.excelDialog.showModal();
+        return;
+      }
     } else {
       if (warningCount > 0) {
         const ok = window.confirm(`พบรายการที่ราคาหลัง Discount ต่ำกว่าทุน ${warningCount} รายการ ยืนยันการบันทึกหรือไม่?`);
-        if (!ok) return;
+        if (!ok) {
+          if (el.excelDialog) el.excelDialog.showModal();
+          return;
+        }
       }
     }
 
+    // 3. Open the dedicated Live Progress Popup via SweetAlert2
     const startTime = Date.now();
     excelState.isImporting = true;
     if (el.startImportBtn) el.startImportBtn.disabled = true;
     if (el.closeExcelModalBtn) el.closeExcelModalBtn.disabled = true;
     if (el.importProgressWrap) el.importProgressWrap.classList.remove('hidden');
 
-    updateImportProgress(0, rows.length, '⏳ กำลังเตรียมนำเข้าข้อมูล...');
-
-    const CHUNK_SIZE = 50;
+    const CHUNK_SIZE = 200; // Optimal speed: ~200 items per chunk takes 5-7s
     const chunks = [];
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       chunks.push(rows.slice(i, i + CHUNK_SIZE));
+    }
+
+    function renderSwalProgress(completed, total, currentChunk, totalChunks, customMsg) {
+      const pct = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+      updateImportProgress(completed, total, customMsg);
+
+      if (window.Swal && Swal.isVisible()) {
+        const barFill = document.getElementById('swalProgressBar');
+        const pctEl = document.getElementById('swalProgressPercent');
+        const textEl = document.getElementById('swalProgressText');
+        const detailEl = document.getElementById('swalProgressDetail');
+
+        if (barFill) barFill.style.width = `${pct}%`;
+        if (pctEl) pctEl.textContent = `${pct}%`;
+        if (textEl) textEl.textContent = customMsg || `กำลังนำเข้า ${completed.toLocaleString()} / ${total.toLocaleString()} รายการ...`;
+        if (detailEl) detailEl.textContent = `ชุดที่ ${currentChunk} / ${totalChunks} (ชุดละ ${CHUNK_SIZE} รายการ)`;
+      }
+    }
+
+    if (window.Swal) {
+      Swal.fire({
+        title: 'กำลังนำเข้าข้อมูลลง Google Sheet...',
+        html: `
+          <div class="swal-progress-box">
+            <div class="swal-progress-header">
+              <span id="swalProgressText" class="swal-progress-status">⏳ กำลังเตรียมส่งข้อมูล...</span>
+              <span id="swalProgressPercent" class="swal-progress-pct">0%</span>
+            </div>
+            <div class="swal-progress-bar-bg">
+              <div id="swalProgressBar" class="swal-progress-bar-fill" style="width: 0%"></div>
+            </div>
+            <div class="swal-progress-detail">
+              <span id="swalProgressDetail">ชุดที่ 1 / ${chunks.length}</span>
+              <span>กำลังประมวลผล...</span>
+            </div>
+          </div>
+        `,
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        showCloseButton: false
+      });
     }
 
     let completed = 0;
@@ -1290,17 +1361,17 @@
     try {
       // Test sending first chunk via batch_import
       try {
-        updateImportProgress(0, rows.length, `กำลังส่งข้อมูลชุดที่ 1 / ${chunks.length} ไปยัง Google Sheet...`);
-        await postBatchImportChunk(chunks[0], el.importModeSelect ? el.importModeSelect.value : 'upsert');
+        renderSwalProgress(0, rows.length, 1, chunks.length, `กำลังส่งข้อมูลชุดที่ 1 / ${chunks.length} ไปยัง Google Sheet...`);
+        await postBatchImportChunk(chunks[0], mode);
         completed += chunks[0].length;
-        updateImportProgress(completed, rows.length, `นำเข้าสำเร็จแล้ว ${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ...`);
+        renderSwalProgress(completed, rows.length, 1, chunks.length, `นำเข้าสำเร็จแล้ว ${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ`);
       } catch (err) {
         console.warn('batch_import failed or not supported, falling back to sequential save/add:', err);
         fallbackMode = true;
       }
 
       if (fallbackMode) {
-        updateImportProgress(0, rows.length, 'กำลังนำเข้าแบบแยกรายการ (Compatibility Mode)...');
+        renderSwalProgress(0, rows.length, 1, rows.length, 'กำลังนำเข้าแบบแยกรายการ (Compatibility Mode)...');
         completed = 0;
         for (let i = 0; i < rows.length; i++) {
           const item = rows[i];
@@ -1309,9 +1380,9 @@
             await postAction(action, item);
             completed++;
             if (completed % 5 === 0 || completed === rows.length) {
-              updateImportProgress(completed, rows.length, `กำลังบันทึก ${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ (${Math.round((completed / rows.length) * 100)}%)...`);
+              renderSwalProgress(completed, rows.length, completed, rows.length, `กำลังบันทึก ${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ...`);
             }
-            await delay(180); // Pacing for Apps Script
+            await delay(150);
           } catch (err) {
             console.error('Error importing item:', item, err);
           }
@@ -1319,18 +1390,18 @@
       } else {
         // Continue remaining chunks with batch_import
         for (let c = 1; c < chunks.length; c++) {
-          updateImportProgress(completed, rows.length, `กำลังนำเข้าชุดที่ ${c + 1} / ${chunks.length} (${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ)...`);
-          await postBatchImportChunk(chunks[c], el.importModeSelect ? el.importModeSelect.value : 'upsert');
+          renderSwalProgress(completed, rows.length, c + 1, chunks.length, `กำลังนำเข้าชุดที่ ${c + 1} / ${chunks.length}...`);
+          await postBatchImportChunk(chunks[c], mode);
           completed += chunks[c].length;
-          updateImportProgress(completed, rows.length, `นำเข้าสำเร็จแล้ว ${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ...`);
-          await delay(250);
+          renderSwalProgress(completed, rows.length, c + 1, chunks.length, `นำเข้าสำเร็จแล้ว ${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ`);
+          await delay(200);
         }
       }
 
-      updateImportProgress(rows.length, rows.length, '✅ นำเข้าข้อมูลเสร็จสมบูรณ์ 100%!');
+      renderSwalProgress(rows.length, rows.length, chunks.length, chunks.length, '✅ นำเข้าข้อมูลเสร็จสมบูรณ์ 100%!');
       const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(1);
 
-      // SweetAlert2 completion summary before closing
+      // 4. Success Summary SweetAlert2 before finishing
       if (window.Swal) {
         await Swal.fire({
           icon: 'success',
@@ -1347,7 +1418,7 @@
               </div>
             </div>
           `,
-          confirmButtonText: 'ตกลง (ปิดหน้าต่างและแสดงข้อมูล)',
+          confirmButtonText: 'ตกลง (แสดงข้อมูลในระบบ)',
           confirmButtonColor: '#2563eb',
           allowOutsideClick: false
         });
@@ -1356,11 +1427,11 @@
         await delay(1200);
       }
 
-      // Close modal and refresh after user confirms SweetAlert
+      // Reset state and refresh view
       excelState.isImporting = false;
       if (el.closeExcelModalBtn) el.closeExcelModalBtn.disabled = false;
       resetExcelUpload();
-      if (el.excelDialog) el.excelDialog.close();
+      if (el.excelDialog && el.excelDialog.open) el.excelDialog.close();
       updateFloatingBackButton();
 
       await loadData({ manual: true });
@@ -1370,13 +1441,15 @@
         await Swal.fire({
           icon: 'error',
           title: 'เกิดข้อผิดพลาดในการนำเข้าข้อมูล',
-          text: err.message || 'ไม่สามารถบันทึกข้อมูลลง Google Sheet ได้',
+          html: `<div style="text-align: left; background: #fee2e2; color: #991b1b; padding: 0.8rem 1rem; border-radius: 10px; font-size: 0.9rem;">${escapeHtml(err.message || 'ไม่สามารถบันทึกข้อมูลลง Google Sheet ได้')}</div>`,
           confirmButtonText: 'ปิด',
           confirmButtonColor: '#dc2626'
         });
       } else {
         showToast(`เกิดข้อผิดพลาด: ${err.message}`, 'error');
       }
+      // Re-open dialog on error so user can re-try or inspect
+      if (el.excelDialog) el.excelDialog.showModal();
     } finally {
       excelState.isImporting = false;
       if (el.startImportBtn) el.startImportBtn.disabled = false;
@@ -1384,17 +1457,26 @@
     }
   }
 
-  function postBatchImportChunk(items, mode) {
+  async function postBatchImportChunk(items, mode) {
     const url = new URL(WEB_APP_URL);
     url.searchParams.set('action', 'batch_import');
     if (APP_TOKEN) url.searchParams.set('token', APP_TOKEN);
 
-    return fetch(url.toString(), {
+    const res = await fetch(url.toString(), {
       method: 'POST',
-      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ token: APP_TOKEN, action: 'batch_import', payload: { items, mode } })
     });
+
+    if (!res.ok) {
+      throw new Error(`การเชื่อมต่อเซิร์ฟเวอร์ขัดข้อง (HTTP ${res.status}: ${res.statusText})`);
+    }
+
+    const data = await res.json();
+    if (!data.ok) {
+      throw new Error(data.error || 'Google Apps Script ส่งข้อความผิดพลาดกลับมา');
+    }
+    return data;
   }
 
   function downloadExcelTemplate() {

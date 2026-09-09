@@ -739,3 +739,77 @@ input[readonly] { background: #f1f5f9; color: #475569; }
   z-index: 2;
   justify-content: flex-end;
 }
+
+/* SweetAlert2 Enhanced Live Progress Popup */
+.swal2-container {
+  z-index: 100000 !important;
+}
+.swal2-popup {
+  border-radius: 20px !important;
+  font-family: inherit !important;
+}
+.swal-progress-box {
+  text-align: left;
+  background: #f8fafc;
+  padding: 1.2rem 1.4rem;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  margin-top: .75rem;
+}
+.swal-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: .75rem;
+}
+.swal-progress-status {
+  font-size: .95rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+.swal-progress-pct {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: .2rem .75rem;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.1);
+}
+.swal-progress-bar-bg {
+  width: 100%;
+  height: 22px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+.swal-progress-bar-fill {
+  height: 100%;
+  background-color: #2563eb;
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.3) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(255, 255, 255, 0.3) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 32px 32px;
+  border-radius: 999px;
+  transition: width .35s ease;
+  animation: progress-stripes 1s linear infinite;
+  box-shadow: 0 0 14px rgba(37, 99, 235, 0.5);
+}
+.swal-progress-detail {
+  margin-top: .65rem;
+  font-size: .85rem;
+  color: #64748b;
+  display: flex;
+  justify-content: space-between;
+}
+
