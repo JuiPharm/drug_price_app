@@ -11,7 +11,7 @@
     rowId: 'row_id',
     itemCode: 'item_code',
     fullName: 'FullName',
-    generic: 'GenericName',
+    generic: 'GenercName',
     cost: 'ราคาต้นทุน',
     opd: 'ราคา OPD',
     ipd: 'ราคา IPD',
@@ -116,7 +116,14 @@
     { key: F.nhso, label: 'ราคา สปสช. (NHSO)', required: false, aliases: ['nhso_heart_price', 'nhso', 'ราคา nhso', 'สปสช', 'ราคา สปสช'] },
     { key: 'กลุ่มใบเสร็จ opd', label: 'กลุ่มใบเสร็จ OPD', required: false, aliases: ['กลุ่มใบเสร็จ opd', 'ใบเสร็จ opd'] },
     { key: 'กลุ่มใบเสร็จ ipd', label: 'กลุ่มใบเสร็จ IPD', required: false, aliases: ['กลุ่มใบเสร็จ ipd', 'ใบเสร็จ ipd'] },
-    { key: 'กลุ่มใบเสร็จ New SIMB', label: 'กลุ่มใบเสร็จ New SIMB', required: false, aliases: ['กลุ่มใบเสร็จ new simb', 'new simb'] }
+    { key: 'กลุ่มใบเสร็จ New SIMB', label: 'กลุ่มใบเสร็จ New SIMB', required: false, aliases: ['กลุ่มใบเสร็จ new simb', 'new simb'] },
+    { key: 'gross_margin_opd', label: 'Gross Margin OPD', required: false, aliases: ['gross_margin_opd', 'margin opd', 'gm opd'] },
+    { key: 'gross_margin_ipd', label: 'Gross Margin IPD', required: false, aliases: ['gross_margin_ipd', 'margin ipd', 'gm ipd'] },
+    { key: 'gross_margin_สกย_opd', label: 'Gross Margin สกย. OPD', required: false, aliases: ['gross_margin_สกย_opd', 'gross_margin_sky_opd', 'margin สกย opd', 'gm สกย opd'] },
+    { key: 'gross_margin_สกย_ipd', label: 'Gross Margin สกย. IPD', required: false, aliases: ['gross_margin_สกย_ipd', 'gross_margin_sky_ipd', 'margin สกย ipd', 'gm สกย ipd'] },
+    { key: 'gross_margin_ipd_foreigner', label: 'Gross Margin IPD ต่างชาติ', required: false, aliases: ['gross_margin_ipd_foreigner', 'gross_margin_ipd_foreign', 'margin ipd foreign'] },
+    { key: 'gross_margin_opd_foreigner', label: 'Gross Margin OPD ต่างชาติ', required: false, aliases: ['gross_margin_opd_foreigner', 'gross_margin_opd_foreign', 'margin opd foreign'] },
+    { key: 'gross_margin_nhso', label: 'Gross Margin สปสช.', required: false, aliases: ['gross_margin_nhso', 'margin nhso'] }
   ];
 
   const el = {
@@ -444,7 +451,7 @@
           ${neg ? '<span class="pill danger">ต่ำกว่าทุน</span>' : ''}
         </div>
         <h3>${escapeHtml(title)}</h3>
-        <p>${escapeHtml(safe(row[F.generic]) || safe(row.Unit) || 'คลิกเพื่อดูรายละเอียด')}</p>
+        <p>${escapeHtml(safe(row[F.generic]) || safe(row.GenercName) || safe(row.DosageForm) || safe(row.Unit) || 'คลิกเพื่อดูรายละเอียด')}</p>
         <div class="price-row">
           <span><small>Cost</small><strong>${cost}</strong></span>
           <span><small>OPD</small><strong>${opd}</strong></span>
@@ -595,6 +602,9 @@
     const skyIpd = toNumber(row[F.skyIpd]);
     const opd = toNumber(row[F.opd]);
     const ipd = toNumber(row[F.ipd]);
+    const opdForeign = toNumber(row[F.opdForeign]);
+    const ipdForeign = toNumber(row[F.ipdForeign]);
+    const nhso = toNumber(row[F.nhso]);
 
     const result = {};
     if (skyOpd !== null) result[F.skyOpdDisc] = round2(skyOpd * 0.8);
@@ -603,8 +613,17 @@
     if (result[F.skyIpdDisc] !== undefined && cost !== null) result[F.skyIpdAfterCost] = round2(result[F.skyIpdDisc] - cost);
     if (cost !== null && opd !== null) result.gross_margin_opd = round2(grossMargin(cost, opd));
     if (cost !== null && ipd !== null) result.gross_margin_ipd = round2(grossMargin(cost, ipd));
-    if (cost !== null && skyOpd !== null) result.gross_margin_sky_opd = round2(grossMargin(cost, skyOpd));
-    if (cost !== null && skyIpd !== null) result.gross_margin_sky_ipd = round2(grossMargin(cost, skyIpd));
+    if (cost !== null && skyOpd !== null) {
+      result['gross_margin_สกย_opd'] = round2(grossMargin(cost, skyOpd));
+      result.gross_margin_sky_opd = result['gross_margin_สกย_opd'];
+    }
+    if (cost !== null && skyIpd !== null) {
+      result['gross_margin_สกย_ipd'] = round2(grossMargin(cost, skyIpd));
+      result.gross_margin_sky_ipd = result['gross_margin_สกย_ipd'];
+    }
+    if (cost !== null && opdForeign !== null) result['gross_margin_opd_foreigner'] = round2(grossMargin(cost, opdForeign));
+    if (cost !== null && ipdForeign !== null) result['gross_margin_ipd_foreigner'] = round2(grossMargin(cost, ipdForeign));
+    if (cost !== null && nhso !== null) result['gross_margin_nhso'] = round2(grossMargin(cost, nhso));
     return result;
   }
 
@@ -958,8 +977,17 @@
       return;
     }
 
-    excelState.rawRows = rawRows;
-    const headers = Object.keys(rawRows[0] || {});
+    // Sanitize row keys by trimming whitespace and newlines (\r, \n)
+    const sanitizedRows = rawRows.map((r) => {
+      const clean = {};
+      Object.entries(r).forEach(([k, v]) => {
+        clean[String(k || '').trim()] = v;
+      });
+      return clean;
+    });
+
+    excelState.rawRows = sanitizedRows;
+    const headers = Object.keys(sanitizedRows[0] || {});
     excelState.excelHeaders = headers;
 
     autoMapColumns(headers);
@@ -1058,6 +1086,19 @@
         const val = (excelCol && rawRow[excelCol] !== undefined) ? String(rawRow[excelCol]).trim() : '';
         row[f.key] = val;
       });
+
+      // Pass through any other database columns present in rawRow if not already set
+      if (state.headers && state.headers.length) {
+        state.headers.forEach((h) => {
+          if ((row[h] === undefined || row[h] === '') && rawRow[h] !== undefined && rawRow[h] !== '') {
+            row[h] = String(rawRow[h]).trim();
+          }
+        });
+      }
+
+      // Synchronize GenercName and GenericName
+      if (row.GenericName && !row.GenercName) row.GenercName = row.GenericName;
+      if (row.GenercName && !row.GenericName) row.GenericName = row.GenercName;
 
       const itemCode = String(row[F.itemCode] || '').trim();
       if (!itemCode) {
