@@ -1231,7 +1231,7 @@
     const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
     el.importProgressBar.style.width = `${percent}%`;
     el.importProgressPercent.textContent = `${percent}%`;
-    el.importProgressText.textContent = text || '';
+    el.importProgressText.textContent = text || `กำลังนำเข้า ${current.toLocaleString()} / ${total.toLocaleString()} รายการ (${percent}%)`;
   }
 
   async function executeExcelImport() {
@@ -1239,17 +1239,44 @@
 
     const rows = excelState.processedRows;
     const warningCount = rows.filter((r) => r._hasNegative).length;
-    if (warningCount > 0) {
-      const ok = window.confirm(`พบรายการที่ราคาหลัง Discount ต่ำกว่าทุน ${warningCount} รายการ ยืนยันการบันทึกหรือไม่?`);
-      if (!ok) return;
+    const newCount = rows.filter((r) => !r._isUpdate).length;
+    const updateCount = rows.filter((r) => r._isUpdate).length;
+
+    // SweetAlert2 or native confirm before starting import
+    if (window.Swal) {
+      const confirmRes = await Swal.fire({
+        title: 'ยืนยันการนำเข้าข้อมูล?',
+        html: `
+          <div style="text-align: left; font-size: 0.95rem; line-height: 1.8; background: #f8fafc; padding: 1rem 1.2rem; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <div>📁 <strong>รายการทั้งหมดในไฟล์:</strong> ${rows.length.toLocaleString()} รายการ</div>
+            <div>🟢 <strong>เพิ่มรายการใหม่ (Add):</strong> ${newCount.toLocaleString()} รายการ</div>
+            <div>🔵 <strong>อัปเดตรายการเดิม (Update):</strong> ${updateCount.toLocaleString()} รายการ</div>
+            ${warningCount > 0 ? `<div style="color: #dc2626; margin-top: .4rem; font-weight: 600;">⚠️ มีรายการที่ราคาหลังหักส่วนลด 20% ต่ำกว่าต้นทุน ${warningCount.toLocaleString()} รายการ</div>` : ''}
+          </div>
+        `,
+        icon: warningCount > 0 ? 'warning' : 'question',
+        showCancelButton: true,
+        confirmButtonText: '🚀 เริ่มนำเข้าข้อมูล',
+        cancelButtonText: 'ยกเลิก',
+        confirmButtonColor: '#2563eb',
+        cancelButtonColor: '#64748b',
+        focusConfirm: true
+      });
+      if (!confirmRes.isConfirmed) return;
+    } else {
+      if (warningCount > 0) {
+        const ok = window.confirm(`พบรายการที่ราคาหลัง Discount ต่ำกว่าทุน ${warningCount} รายการ ยืนยันการบันทึกหรือไม่?`);
+        if (!ok) return;
+      }
     }
 
+    const startTime = Date.now();
     excelState.isImporting = true;
     if (el.startImportBtn) el.startImportBtn.disabled = true;
     if (el.closeExcelModalBtn) el.closeExcelModalBtn.disabled = true;
     if (el.importProgressWrap) el.importProgressWrap.classList.remove('hidden');
 
-    updateImportProgress(0, rows.length, 'กำลังเตรียมนำเข้าข้อมูล...');
+    updateImportProgress(0, rows.length, '⏳ กำลังเตรียมนำเข้าข้อมูล...');
 
     const CHUNK_SIZE = 50;
     const chunks = [];
@@ -1260,56 +1287,101 @@
     let completed = 0;
     let fallbackMode = false;
 
-    // Test sending first chunk via batch_import
     try {
-      updateImportProgress(0, rows.length, `กำลังส่งข้อมูลชุดที่ 1 / ${chunks.length} ไปยัง Google Sheet...`);
-      await postBatchImportChunk(chunks[0], el.importModeSelect ? el.importModeSelect.value : 'upsert');
-      completed += chunks[0].length;
-      updateImportProgress(completed, rows.length, `นำเข้าสำเร็จแล้ว ${completed} / ${rows.length} รายการ...`);
-    } catch (err) {
-      console.warn('batch_import failed or not supported, falling back to sequential save/add:', err);
-      fallbackMode = true;
-    }
+      // Test sending first chunk via batch_import
+      try {
+        updateImportProgress(0, rows.length, `กำลังส่งข้อมูลชุดที่ 1 / ${chunks.length} ไปยัง Google Sheet...`);
+        await postBatchImportChunk(chunks[0], el.importModeSelect ? el.importModeSelect.value : 'upsert');
+        completed += chunks[0].length;
+        updateImportProgress(completed, rows.length, `นำเข้าสำเร็จแล้ว ${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ...`);
+      } catch (err) {
+        console.warn('batch_import failed or not supported, falling back to sequential save/add:', err);
+        fallbackMode = true;
+      }
 
-    if (fallbackMode) {
-      updateImportProgress(0, rows.length, 'กำลังนำเข้าแบบแยกรายการ (Compatibility Mode)...');
-      completed = 0;
-      for (let i = 0; i < rows.length; i++) {
-        const item = rows[i];
-        const action = item._isUpdate ? 'save' : 'add';
-        try {
-          await postAction(action, item);
-          completed++;
-          if (completed % 5 === 0 || completed === rows.length) {
-            updateImportProgress(completed, rows.length, `กำลังบันทึก ${completed} / ${rows.length} รายการ...`);
+      if (fallbackMode) {
+        updateImportProgress(0, rows.length, 'กำลังนำเข้าแบบแยกรายการ (Compatibility Mode)...');
+        completed = 0;
+        for (let i = 0; i < rows.length; i++) {
+          const item = rows[i];
+          const action = item._isUpdate ? 'save' : 'add';
+          try {
+            await postAction(action, item);
+            completed++;
+            if (completed % 5 === 0 || completed === rows.length) {
+              updateImportProgress(completed, rows.length, `กำลังบันทึก ${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ (${Math.round((completed / rows.length) * 100)}%)...`);
+            }
+            await delay(180); // Pacing for Apps Script
+          } catch (err) {
+            console.error('Error importing item:', item, err);
           }
-          await delay(200); // Friendly pacing for GAS
-        } catch (err) {
-          console.error('Error importing item:', item, err);
+        }
+      } else {
+        // Continue remaining chunks with batch_import
+        for (let c = 1; c < chunks.length; c++) {
+          updateImportProgress(completed, rows.length, `กำลังนำเข้าชุดที่ ${c + 1} / ${chunks.length} (${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ)...`);
+          await postBatchImportChunk(chunks[c], el.importModeSelect ? el.importModeSelect.value : 'upsert');
+          completed += chunks[c].length;
+          updateImportProgress(completed, rows.length, `นำเข้าสำเร็จแล้ว ${completed.toLocaleString()} / ${rows.length.toLocaleString()} รายการ...`);
+          await delay(250);
         }
       }
-    } else {
-      // Continue remaining chunks with batch_import
-      for (let c = 1; c < chunks.length; c++) {
-        updateImportProgress(completed, rows.length, `กำลังนำเข้าชุดที่ ${c + 1} / ${chunks.length}...`);
-        await postBatchImportChunk(chunks[c], el.importModeSelect ? el.importModeSelect.value : 'upsert');
-        completed += chunks[c].length;
-        updateImportProgress(completed, rows.length, `นำเข้าแล้ว ${completed} / ${rows.length} รายการ...`);
-        await delay(300);
+
+      updateImportProgress(rows.length, rows.length, '✅ นำเข้าข้อมูลเสร็จสมบูรณ์ 100%!');
+      const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(1);
+
+      // SweetAlert2 completion summary before closing
+      if (window.Swal) {
+        await Swal.fire({
+          icon: 'success',
+          title: 'นำเข้าข้อมูลเรียบร้อยแล้ว! 🎉',
+          html: `
+            <div style="text-align: left; font-size: 0.95rem; line-height: 1.85; background: #f8fafc; padding: 1.1rem 1.25rem; border-radius: 14px; border: 1px solid #e2e8f0;">
+              <div style="margin-bottom: 0.35rem;">📊 <strong>รายการทั้งหมดที่ประมวลผล:</strong> <span style="font-size: 1.05rem; font-weight: 700; color: #1e293b;">${completed.toLocaleString()}</span> / ${rows.length.toLocaleString()} รายการ</div>
+              <div>🟢 <strong>เพิ่มรายการใหม่ (Add):</strong> <span style="color: #16a34a; font-weight: 600;">${newCount.toLocaleString()}</span> รายการ</div>
+              <div>🔵 <strong>อัปเดตรายการเดิม (Update):</strong> <span style="color: #2563eb; font-weight: 600;">${updateCount.toLocaleString()}</span> รายการ</div>
+              ${warningCount > 0 ? `<div style="color: #dc2626; font-weight: 600;">⚠️ <strong>ราคาหลังส่วนลดต่ำกว่าทุน:</strong> ${warningCount.toLocaleString()} รายการ</div>` : ''}
+              <div style="margin-top: 0.45rem; padding-top: 0.45rem; border-top: 1px dashed #cbd5e1; color: #64748b; font-size: 0.88rem;">
+                ⚡ <strong>โหมดการนำเข้า:</strong> ${fallbackMode ? 'Compatibility Mode (บันทึกรายตัว)' : 'Fast Batch Mode (ประมวลผลเป็นชุด)'}<br>
+                ⏱️ <strong>เวลาที่ใช้ทั้งหมด:</strong> ${elapsedSeconds} วินาที
+              </div>
+            </div>
+          `,
+          confirmButtonText: 'ตกลง (ปิดหน้าต่างและแสดงข้อมูล)',
+          confirmButtonColor: '#2563eb',
+          allowOutsideClick: false
+        });
+      } else {
+        showToast(`นำเข้าสำเร็จ ${completed.toLocaleString()} รายการ!`, 'ok');
+        await delay(1200);
       }
+
+      // Close modal and refresh after user confirms SweetAlert
+      excelState.isImporting = false;
+      if (el.closeExcelModalBtn) el.closeExcelModalBtn.disabled = false;
+      resetExcelUpload();
+      if (el.excelDialog) el.excelDialog.close();
+      updateFloatingBackButton();
+
+      await loadData({ manual: true });
+    } catch (err) {
+      console.error('Import failed:', err);
+      if (window.Swal) {
+        await Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาดในการนำเข้าข้อมูล',
+          text: err.message || 'ไม่สามารถบันทึกข้อมูลลง Google Sheet ได้',
+          confirmButtonText: 'ปิด',
+          confirmButtonColor: '#dc2626'
+        });
+      } else {
+        showToast(`เกิดข้อผิดพลาด: ${err.message}`, 'error');
+      }
+    } finally {
+      excelState.isImporting = false;
+      if (el.startImportBtn) el.startImportBtn.disabled = false;
+      if (el.closeExcelModalBtn) el.closeExcelModalBtn.disabled = false;
     }
-
-    updateImportProgress(rows.length, rows.length, 'นำเข้าข้อมูลเสร็จสมบูรณ์! กำลังรีเฟรชฐานข้อมูล...');
-    showToast(`นำเข้าสำเร็จ ${completed.toLocaleString()} รายการ!`, 'ok');
-
-    await delay(1500);
-    await loadData({ manual: true });
-
-    excelState.isImporting = false;
-    if (el.closeExcelModalBtn) el.closeExcelModalBtn.disabled = false;
-    resetExcelUpload();
-    if (el.excelDialog) el.excelDialog.close();
-    updateFloatingBackButton();
   }
 
   function postBatchImportChunk(items, mode) {

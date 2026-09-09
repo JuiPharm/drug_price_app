@@ -669,29 +669,66 @@ input[readonly] { background: #f1f5f9; color: #475569; }
 }
 
 .progress-wrap {
-  padding: .5rem 1.2rem;
+  padding: .85rem 1.2rem;
   display: flex;
   flex-direction: column;
-  gap: .5rem;
+  gap: .65rem;
+  background: #f8fafc;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  margin: .5rem 1.2rem;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 .progress-bar-bg {
   width: 100%;
-  height: 12px;
+  height: 20px;
   background: #e2e8f0;
   border-radius: 999px;
   overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.08);
 }
 .progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #2563eb, #38bdf8);
+  background-color: #2563eb;
+  background-image: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.28) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.28) 50%,
+    rgba(255, 255, 255, 0.28) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 32px 32px;
   border-radius: 999px;
-  transition: width .25s ease;
+  transition: width .3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: progress-stripes 1s linear infinite;
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.45);
+}
+@keyframes progress-stripes {
+  0% { background-position: 0 0; }
+  100% { background-position: 32px 0; }
 }
 .progress-status-line {
   display: flex;
   justify-content: space-between;
-  font-size: .9rem;
-  color: var(--muted);
+  align-items: center;
+  font-size: .92rem;
+  color: #334155;
+  font-weight: 500;
+}
+#importProgressPercent {
+  font-size: 1.05rem;
+  color: var(--primary);
+  font-weight: 700;
+  background: #eff6ff;
+  padding: .15rem .65rem;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.1);
 }
 .excel-footer {
   padding: 1rem 1.2rem;
