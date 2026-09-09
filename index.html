@@ -37,6 +37,8 @@
         </div>
         <div class="toolbar-actions">
           <button id="refreshBtn" class="btn secondary">Refresh</button>
+          <button id="exportExcelBtn" class="btn secondary">📤 Export Excel</button>
+          <button id="uploadExcelBtn" class="btn secondary highlight">📥 นำเข้า Excel</button>
           <button id="addBtn" class="btn primary">+ เพิ่มรายการใหม่</button>
         </div>
       </section>
@@ -129,10 +131,118 @@
     </form>
   </dialog>
 
+  <dialog id="excelDialog" class="modal excel-modal">
+    <form method="dialog" class="modal-shell excel-shell">
+      <header class="modal-header">
+        <div>
+          <p class="eyebrow">ระบบนำเข้าข้อมูล</p>
+          <h2>Upload ข้อมูลจากไฟล์ Excel</h2>
+          <p class="subtext">รองรับไฟล์ .xlsx, .xls, .csv พร้อมระบบจับคู่คอลัมน์และคำนวณราคาอัตโนมัติ</p>
+        </div>
+        <button class="icon-btn" value="cancel" aria-label="Close">×</button>
+      </header>
+
+      <!-- Step 1: Dropzone & Template Download -->
+      <section class="excel-step-section">
+        <div class="dropzone-area" id="excelDropzone">
+          <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" class="hidden-file-input" />
+          <div class="dropzone-content" id="dropzonePrompt">
+            <div class="dropzone-icon">📊</div>
+            <div class="dropzone-text">
+              <strong>ลากไฟล์ Excel / CSV มาวางที่นี่</strong> หรือ <button type="button" id="excelBrowseBtn" class="link-btn">เลือกไฟล์จากเครื่อง</button>
+              <span class="hint">รองรับไฟล์ Excel (.xlsx, .xls) และ CSV (.csv)</span>
+            </div>
+          </div>
+          <div id="selectedFileInfo" class="selected-file-info hidden">
+            <span class="file-icon">📄</span>
+            <div class="file-meta">
+              <strong id="fileNameDisplay">-</strong>
+              <small id="fileSizeDisplay">-</small>
+            </div>
+            <button type="button" id="removeFileBtn" class="btn-sm danger">เปลี่ยนไฟล์</button>
+          </div>
+        </div>
+
+        <div class="template-bar">
+          <span>ยังไม่มีไฟล์ตัวอย่าง?</span>
+          <button type="button" id="downloadTemplateBtn" class="btn-text">📥 ดาวน์โหลดแม่แบบ Excel (Template.xlsx)</button>
+        </div>
+      </section>
+
+      <!-- Step 2: Settings & Options (shown after file parsed) -->
+      <section id="excelConfigSection" class="excel-config-section hidden">
+        <div class="config-grid">
+          <div class="config-item" id="sheetSelectWrap">
+            <label for="sheetSelect">เลือกแผ่นงาน (Sheet):</label>
+            <select id="sheetSelect" class="form-select"></select>
+          </div>
+          <div class="config-item">
+            <label for="importModeSelect">โหมดการนำเข้า:</label>
+            <select id="importModeSelect" class="form-select">
+              <option value="upsert">อัปเดตรายการเดิม + เพิ่มรายการใหม่ (Upsert - แนะนำ)</option>
+              <option value="add">เพิ่มเป็นรายการใหม่ทั้งหมด (Add Only)</option>
+              <option value="update">อัปเดตเฉพาะรายการที่มีในฐานข้อมูล (Update Only)</option>
+            </select>
+          </div>
+          <div class="config-item checkbox-item">
+            <label class="checkbox-label">
+              <input type="checkbox" id="autoCalcPricesCheckbox" checked />
+              <span>คำนวณราคาอัตโนมัติ (ส่วนลด 20%, หลังส่วนลด - ทุน, GM, ราคา IPD/ต่างชาติ)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Column Mapping Collapsible -->
+        <details class="mapping-details" id="mappingDetails">
+          <summary class="mapping-summary">
+            <strong>🔗 การจับคู่คอลัมน์ (Column Mapping)</strong>
+            <small class="hint">คลิกเพื่อดูหรือปรับเปลี่ยนการจับคู่ระหว่างคอลัมน์ใน Excel กับระบบ</small>
+          </summary>
+          <div id="mappingGrid" class="mapping-grid"></div>
+        </details>
+
+        <!-- Preview Stats -->
+        <div class="preview-stats-bar">
+          <div class="stat-chip">แถวข้อมูลในไฟล์: <strong id="statTotalRows">0</strong></div>
+          <div class="stat-chip success">เพิ่มรายการใหม่: <strong id="statNewRows">0</strong></div>
+          <div class="stat-chip info">อัปเดตรายการเดิม: <strong id="statUpdateRows">0</strong></div>
+          <div class="stat-chip warning hidden" id="statWarningWrap">หลังลดต่ำกว่าทุน: <strong id="statWarningRows">0</strong></div>
+          <div class="stat-chip danger hidden" id="statInvalidWrap">ไม่มีรหัสยา: <strong id="statInvalidRows">0</strong></div>
+        </div>
+
+        <!-- Preview Table -->
+        <div class="preview-table-wrap">
+          <table class="preview-table" id="previewTable">
+            <thead id="previewTableHead"></thead>
+            <tbody id="previewTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Progress Bar (shown while importing) -->
+      <div id="importProgressWrap" class="progress-wrap hidden">
+        <div class="progress-bar-bg">
+          <div id="importProgressBar" class="progress-bar-fill" style="width: 0%"></div>
+        </div>
+        <div class="progress-status-line">
+          <span id="importProgressText">กำลังเริ่มนำเข้า...</span>
+          <strong id="importProgressPercent">0%</strong>
+        </div>
+      </div>
+
+      <footer class="modal-actions excel-footer">
+        <button type="button" id="closeExcelModalBtn" class="btn secondary">ปิด</button>
+        <button type="button" id="startImportBtn" class="btn primary" disabled>🚀 ยืนยันนำเข้าข้อมูลลง Google Sheet</button>
+      </footer>
+    </form>
+  </dialog>
+
   <button id="floatingBackBtn" class="floating-back hidden" type="button" aria-label="กลับ">← กลับ</button>
 
   <div id="toast" class="toast hidden"></div>
 
+  <!-- SheetJS CDN for Client-side Excel parsing & generating -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>

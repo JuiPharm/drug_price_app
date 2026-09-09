@@ -85,6 +85,40 @@
     pollHandle: null
   };
 
+  const excelState = {
+    workbook: null,
+    fileName: '',
+    sheetNames: [],
+    selectedSheet: '',
+    excelHeaders: [],
+    rawRows: [],
+    processedRows: [],
+    columnMapping: {},
+    isImporting: false
+  };
+
+  const MAPPABLE_FIELDS = [
+    { key: F.itemCode, label: 'รหัสยา (item_code) *', required: true, aliases: ['item_code', 'itemcode', 'code', 'รหัสยา', 'รหัส', 'barcode', 'รหัสสินค้า', 'item code'] },
+    { key: F.fullName, label: 'ชื่อยา (FullName)', required: false, aliases: ['fullname', 'full_name', 'ชื่อยา', 'ชื่อทางการค้า', 'ชื่อการค้า', 'tradename', 'name', 'ชื่อ'] },
+    { key: F.generic, label: 'ชื่อสามัญ (GenericName)', required: false, aliases: ['genercname', 'genericname', 'generic', 'ชื่อสามัญ', 'สามัญ', 'generic name'] },
+    { key: 'DosageForm', label: 'รูปแบบยา (DosageForm)', required: false, aliases: ['dosageform', 'dosage_form', 'dosage form', 'form', 'รูปแบบ', 'รูปแบบยา'] },
+    { key: 'Unit', label: 'หน่วย (Unit)', required: false, aliases: ['unit', 'หน่วย', 'หน่วยนับ', 'หน่วยบรรจุ'] },
+    { key: 'Strength', label: 'ความแรง (Strength)', required: false, aliases: ['strength', 'ความแรง'] },
+    { key: 'Major Class', label: 'หมวดหมู่หลัก (Major Class)', required: false, aliases: ['major class', 'major_class', 'majorclass', 'หมวดหลัก', 'กลุ่มยา'] },
+    { key: 'Sub Class', label: 'หมวดหมู่ย่อย (Sub Class)', required: false, aliases: ['sub class', 'sub_class', 'subclass', 'หมวดย่อย'] },
+    { key: F.cost, label: 'ราคาต้นทุน', required: false, aliases: ['ราคาต้นทุน', 'ต้นทุน', 'cost', 'ราคาซื้อ', 'cost_price', 'price_cost'] },
+    { key: F.opd, label: 'ราคา OPD', required: false, aliases: ['ราคา opd', 'opd', 'ราคาขาย opd', 'opd_price', 'price_opd'] },
+    { key: F.ipd, label: 'ราคา IPD', required: false, aliases: ['ราคา ipd', 'ipd', 'ราคาขาย ipd', 'ipd_price', 'price_ipd'] },
+    { key: F.skyOpd, label: 'ราคา สกย. OPD', required: false, aliases: ['ราคา สกย. opd', 'ราคา สกย opd', 'สกย opd', 'sky opd', 'sky_opd', 'สกย. opd'] },
+    { key: F.skyIpd, label: 'ราคา สกย. IPD', required: false, aliases: ['ราคา สกย. ipd', 'ราคา สกย ipd', 'สกย ipd', 'sky ipd', 'sky_ipd', 'สกย. ipd'] },
+    { key: F.opdForeign, label: 'ราคา OPD ต่างชาติ', required: false, aliases: ['ราคา opd_foreigner', 'ราคา opd foreigner', 'opd ต่างชาติ', 'opd foreigner', 'opd_foreigner'] },
+    { key: F.ipdForeign, label: 'ราคา IPD ต่างชาติ', required: false, aliases: ['ราคา ipd_foreigner', 'ราคา ipd foreigner', 'ipd ต่างชาติ', 'ipd foreigner', 'ipd_foreigner'] },
+    { key: F.nhso, label: 'ราคา สปสช. (NHSO)', required: false, aliases: ['nhso_heart_price', 'nhso', 'ราคา nhso', 'สปสช', 'ราคา สปสช'] },
+    { key: 'กลุ่มใบเสร็จ opd', label: 'กลุ่มใบเสร็จ OPD', required: false, aliases: ['กลุ่มใบเสร็จ opd', 'ใบเสร็จ opd'] },
+    { key: 'กลุ่มใบเสร็จ ipd', label: 'กลุ่มใบเสร็จ IPD', required: false, aliases: ['กลุ่มใบเสร็จ ipd', 'ใบเสร็จ ipd'] },
+    { key: 'กลุ่มใบเสร็จ New SIMB', label: 'กลุ่มใบเสร็จ New SIMB', required: false, aliases: ['กลุ่มใบเสร็จ new simb', 'new simb'] }
+  ];
+
   const el = {
     syncStatus: byId('syncStatus'),
     syncText: byId('syncText'),
@@ -92,6 +126,8 @@
     searchInput: byId('searchInput'),
     refreshBtn: byId('refreshBtn'),
     addBtn: byId('addBtn'),
+    exportExcelBtn: byId('exportExcelBtn'),
+    uploadExcelBtn: byId('uploadExcelBtn'),
     totalCount: byId('totalCount'),
     filteredCount: byId('filteredCount'),
     negativeCount: byId('negativeCount'),
@@ -120,7 +156,40 @@
     pingBtn: byId('pingBtn'),
     copyDiagBtn: byId('copyDiagBtn'),
     diagBox: byId('diagBox'),
-    floatingBackBtn: byId('floatingBackBtn')
+    floatingBackBtn: byId('floatingBackBtn'),
+    // Excel Modal elements
+    excelDialog: byId('excelDialog'),
+    excelDropzone: byId('excelDropzone'),
+    excelFileInput: byId('excelFileInput'),
+    excelBrowseBtn: byId('excelBrowseBtn'),
+    dropzonePrompt: byId('dropzonePrompt'),
+    selectedFileInfo: byId('selectedFileInfo'),
+    fileNameDisplay: byId('fileNameDisplay'),
+    fileSizeDisplay: byId('fileSizeDisplay'),
+    removeFileBtn: byId('removeFileBtn'),
+    downloadTemplateBtn: byId('downloadTemplateBtn'),
+    excelConfigSection: byId('excelConfigSection'),
+    sheetSelectWrap: byId('sheetSelectWrap'),
+    sheetSelect: byId('sheetSelect'),
+    importModeSelect: byId('importModeSelect'),
+    autoCalcPricesCheckbox: byId('autoCalcPricesCheckbox'),
+    mappingDetails: byId('mappingDetails'),
+    mappingGrid: byId('mappingGrid'),
+    statTotalRows: byId('statTotalRows'),
+    statNewRows: byId('statNewRows'),
+    statUpdateRows: byId('statUpdateRows'),
+    statWarningWrap: byId('statWarningWrap'),
+    statWarningRows: byId('statWarningRows'),
+    statInvalidWrap: byId('statInvalidWrap'),
+    statInvalidRows: byId('statInvalidRows'),
+    previewTableHead: byId('previewTableHead'),
+    previewTableBody: byId('previewTableBody'),
+    importProgressWrap: byId('importProgressWrap'),
+    importProgressBar: byId('importProgressBar'),
+    importProgressText: byId('importProgressText'),
+    importProgressPercent: byId('importProgressPercent'),
+    closeExcelModalBtn: byId('closeExcelModalBtn'),
+    startImportBtn: byId('startImportBtn')
   };
 
   init();
@@ -152,6 +221,8 @@
 
     el.refreshBtn.addEventListener('click', () => loadData({ manual: true }));
     el.addBtn.addEventListener('click', openNewModal);
+    if (el.exportExcelBtn) el.exportExcelBtn.addEventListener('click', exportCurrentDataToExcel);
+    if (el.uploadExcelBtn) el.uploadExcelBtn.addEventListener('click', openExcelModal);
     el.loadMoreBtn.addEventListener('click', () => {
       state.visibleCount += PAGE_SIZE;
       renderCards();
@@ -167,6 +238,19 @@
     el.pingBtn.addEventListener('click', ping);
     el.copyDiagBtn.addEventListener('click', copyDiagnostics);
 
+    // Excel Modal event bindings
+    if (el.closeExcelModalBtn) el.closeExcelModalBtn.addEventListener('click', closeExcelModal);
+    if (el.downloadTemplateBtn) el.downloadTemplateBtn.addEventListener('click', downloadExcelTemplate);
+    if (el.excelBrowseBtn) el.excelBrowseBtn.addEventListener('click', () => el.excelFileInput && el.excelFileInput.click());
+    if (el.excelFileInput) el.excelFileInput.addEventListener('change', handleExcelFileSelect);
+    if (el.removeFileBtn) el.removeFileBtn.addEventListener('click', resetExcelUpload);
+    if (el.sheetSelect) el.sheetSelect.addEventListener('change', onSheetChange);
+    if (el.importModeSelect) el.importModeSelect.addEventListener('change', processExcelData);
+    if (el.autoCalcPricesCheckbox) el.autoCalcPricesCheckbox.addEventListener('change', processExcelData);
+    if (el.startImportBtn) el.startImportBtn.addEventListener('click', executeExcelImport);
+
+    setupDropzone();
+
     if (el.floatingBackBtn) {
       el.floatingBackBtn.addEventListener('click', handleFloatingBack);
       window.addEventListener('scroll', debounce(updateFloatingBackButton, 80), { passive: true });
@@ -174,6 +258,7 @@
     }
 
     el.dialog.addEventListener('close', updateFloatingBackButton);
+    if (el.excelDialog) el.excelDialog.addEventListener('close', updateFloatingBackButton);
   }
 
   function byId(id) {
@@ -193,6 +278,11 @@
   function handleFloatingBack() {
     if (el.dialog && el.dialog.open) {
       el.dialog.close();
+      return;
+    }
+
+    if (el.excelDialog && el.excelDialog.open) {
+      closeExcelModal();
       return;
     }
 
@@ -222,6 +312,7 @@
     const activePanel = document.querySelector('.tab-panel.active');
     const shouldShow = isMobile && (
       (el.dialog && el.dialog.open) ||
+      (el.excelDialog && el.excelDialog.open) ||
       (activePanel && activePanel.id !== 'databaseTab') ||
       window.scrollY > 120
     );
@@ -724,7 +815,582 @@
     };
   }
 
-  function delay(ms) {
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  // ==========================================
+  // Excel Upload, Import & Export Engine
+  // ==========================================
+
+  function openExcelModal() {
+    if (!el.excelDialog) return;
+    el.excelDialog.showModal();
+    updateFloatingBackButton();
+  }
+
+  function closeExcelModal() {
+    if (!el.excelDialog) return;
+    if (excelState.isImporting) {
+      const ok = window.confirm('ระบบกำลังนำเข้าข้อมูลอยู่ ต้องการปิดหน้าต่างหรือไม่?');
+      if (!ok) return;
+    }
+    el.excelDialog.close();
+    updateFloatingBackButton();
+  }
+
+  function resetExcelUpload() {
+    excelState.workbook = null;
+    excelState.fileName = '';
+    excelState.sheetNames = [];
+    excelState.selectedSheet = '';
+    excelState.excelHeaders = [];
+    excelState.rawRows = [];
+    excelState.processedRows = [];
+    excelState.columnMapping = {};
+    excelState.isImporting = false;
+
+    if (el.excelFileInput) el.excelFileInput.value = '';
+    if (el.dropzonePrompt) el.dropzonePrompt.classList.remove('hidden');
+    if (el.selectedFileInfo) el.selectedFileInfo.classList.add('hidden');
+    if (el.excelConfigSection) el.excelConfigSection.classList.add('hidden');
+    if (el.importProgressWrap) el.importProgressWrap.classList.add('hidden');
+    if (el.startImportBtn) el.startImportBtn.disabled = true;
+  }
+
+  function setupDropzone() {
+    if (!el.excelDropzone) return;
+
+    ['dragenter', 'dragover'].forEach((eventName) => {
+      el.excelDropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        el.excelDropzone.classList.add('dragover');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach((eventName) => {
+      el.excelDropzone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        el.excelDropzone.classList.remove('dragover');
+      }, false);
+    });
+
+    el.excelDropzone.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      const files = dt && dt.files;
+      if (files && files.length) {
+        parseExcelFile(files[0]);
+      }
+    });
+  }
+
+  function handleExcelFileSelect(e) {
+    const file = e.target.files && e.target.files[0];
+    if (file) parseExcelFile(file);
+  }
+
+  function parseExcelFile(file) {
+    if (!window.XLSX) {
+      showToast('ไม่พบคลัง SheetJS กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต', 'error');
+      return;
+    }
+
+    const validExtensions = ['.xlsx', '.xls', '.csv'];
+    const nameLower = file.name.toLowerCase();
+    const isValid = validExtensions.some((ext) => nameLower.endsWith(ext));
+    if (!isValid) {
+      showToast('กรุณาเลือกไฟล์ .xlsx, .xls หรือ .csv เท่านั้น', 'error');
+      return;
+    }
+
+    excelState.fileName = file.name;
+    if (el.fileNameDisplay) el.fileNameDisplay.textContent = file.name;
+    if (el.fileSizeDisplay) el.fileSizeDisplay.textContent = formatBytes(file.size);
+    if (el.dropzonePrompt) el.dropzonePrompt.classList.add('hidden');
+    if (el.selectedFileInfo) el.selectedFileInfo.classList.remove('hidden');
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        excelState.workbook = workbook;
+        excelState.sheetNames = workbook.SheetNames || [];
+
+        if (!excelState.sheetNames.length) {
+          throw new Error('ไม่พบแผ่นงาน (Sheet) ในไฟล์ Excel นี้');
+        }
+
+        // Setup Sheet Selector
+        if (el.sheetSelect) {
+          el.sheetSelect.innerHTML = excelState.sheetNames.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+          if (el.sheetSelectWrap) {
+            el.sheetSelectWrap.classList.toggle('hidden', excelState.sheetNames.length <= 1);
+          }
+        }
+        excelState.selectedSheet = excelState.sheetNames[0];
+
+        loadSheetData(excelState.selectedSheet);
+      } catch (err) {
+        showToast('อ่านไฟล์ไม่สำเร็จ: ' + err.message, 'error');
+        resetExcelUpload();
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function onSheetChange(e) {
+    const sheetName = e.target.value;
+    if (sheetName && excelState.sheetNames.includes(sheetName)) {
+      excelState.selectedSheet = sheetName;
+      loadSheetData(sheetName);
+    }
+  }
+
+  function loadSheetData(sheetName) {
+    if (!excelState.workbook) return;
+    const worksheet = excelState.workbook.Sheets[sheetName];
+    if (!worksheet) return;
+
+    const rawRows = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+    if (!rawRows.length) {
+      showToast('ไม่พบแถวข้อมูลในแผ่นงานนี้', 'error');
+      if (el.excelConfigSection) el.excelConfigSection.classList.add('hidden');
+      if (el.startImportBtn) el.startImportBtn.disabled = true;
+      return;
+    }
+
+    excelState.rawRows = rawRows;
+    const headers = Object.keys(rawRows[0] || {});
+    excelState.excelHeaders = headers;
+
+    autoMapColumns(headers);
+    renderMappingGrid();
+    processExcelData();
+
+    if (el.excelConfigSection) el.excelConfigSection.classList.remove('hidden');
+  }
+
+  function autoMapColumns(headers) {
+    const mapping = {};
+    const normHeaders = headers.map((h) => ({
+      original: h,
+      clean: normalizeText(h).replace(/[^a-z0-9\u0e00-\u0e7f]/g, '')
+    }));
+
+    MAPPABLE_FIELDS.forEach((field) => {
+      // 1. Exact match
+      const exact = headers.find((h) => h.trim() === field.key || h.trim().toLowerCase() === field.key.toLowerCase());
+      if (exact) {
+        mapping[field.key] = exact;
+        return;
+      }
+
+      // 2. Alias match
+      for (const alias of field.aliases) {
+        const cleanAlias = normalizeText(alias).replace(/[^a-z0-9\u0e00-\u0e7f]/g, '');
+        const matched = normHeaders.find((h) => h.clean === cleanAlias || h.clean.includes(cleanAlias) || cleanAlias.includes(h.clean));
+        if (matched) {
+          mapping[field.key] = matched.original;
+          return;
+        }
+      }
+
+      mapping[field.key] = '';
+    });
+
+    excelState.columnMapping = mapping;
+  }
+
+  function renderMappingGrid() {
+    if (!el.mappingGrid) return;
+
+    const optionsHtml = ['<option value="">-- ไม่ระบุ (เว้นว่าง) --</option>']
+      .concat(excelState.excelHeaders.map((h) => `<option value="${escapeHtml(h)}">${escapeHtml(h)}</option>`))
+      .join('');
+
+    el.mappingGrid.innerHTML = MAPPABLE_FIELDS.map((field) => {
+      const selectedCol = excelState.columnMapping[field.key] || '';
+      return `
+        <div class="mapping-row">
+          <label for="map_${escapeAttr(field.key)}">${escapeHtml(field.label)}</label>
+          <select id="map_${escapeAttr(field.key)}" data-field-key="${escapeAttr(field.key)}" class="form-select">
+            ${optionsHtml}
+          </select>
+        </div>
+      `;
+    }).join('');
+
+    // Set selected values & attach listeners
+    el.mappingGrid.querySelectorAll('select[data-field-key]').forEach((sel) => {
+      const fieldKey = sel.dataset.fieldKey;
+      if (excelState.columnMapping[fieldKey]) {
+        sel.value = excelState.columnMapping[fieldKey];
+      }
+      sel.addEventListener('change', () => {
+        excelState.columnMapping[fieldKey] = sel.value;
+        processExcelData();
+      });
+    });
+  }
+
+  function processExcelData() {
+    const mapping = excelState.columnMapping;
+    const mode = el.importModeSelect ? el.importModeSelect.value : 'upsert';
+    const autoCalc = el.autoCalcPricesCheckbox ? el.autoCalcPricesCheckbox.checked : true;
+
+    // Index existing database rows by item_code (lowercase)
+    const existingCodeMap = new Map();
+    state.rows.forEach((r) => {
+      const code = String(r[F.itemCode] || '').trim().toLowerCase();
+      if (code) existingCodeMap.set(code, r);
+    });
+
+    let newCount = 0;
+    let updateCount = 0;
+    let warningCount = 0;
+    let invalidCount = 0;
+
+    const processed = [];
+
+    excelState.rawRows.forEach((rawRow, idx) => {
+      const row = {};
+      MAPPABLE_FIELDS.forEach((f) => {
+        const excelCol = mapping[f.key];
+        const val = (excelCol && rawRow[excelCol] !== undefined) ? String(rawRow[excelCol]).trim() : '';
+        row[f.key] = val;
+      });
+
+      const itemCode = String(row[F.itemCode] || '').trim();
+      if (!itemCode) {
+        invalidCount++;
+        return; // Skip rows without item_code
+      }
+
+      const existing = existingCodeMap.get(itemCode.toLowerCase());
+      const isUpdate = !!existing;
+
+      // Filter by import mode
+      if (mode === 'add' && isUpdate) return;
+      if (mode === 'update' && !isUpdate) return;
+
+      if (isUpdate) {
+        row[F.rowId] = existing[F.rowId] || '';
+        row[F.createdAt] = existing[F.createdAt] || '';
+        updateCount++;
+      } else {
+        newCount++;
+      }
+
+      // Auto-fill and compute pricing
+      if (autoCalc) {
+        const skyOpd = toNumber(row[F.skyOpd]);
+        const skyIpd = toNumber(row[F.skyIpd]);
+        const currentOpd = toNumber(row[F.opd]);
+
+        if (skyOpd !== null && (row[F.opd] === '' || row[F.opd] === undefined)) {
+          row[F.opd] = round2(skyOpd);
+        }
+        const opdVal = toNumber(row[F.opd]) ?? currentOpd ?? 0;
+
+        if (skyIpd !== null && (row[F.ipd] === '' || row[F.ipd] === undefined)) {
+          row[F.ipd] = round2(skyIpd);
+        } else if (opdVal > 0 && (row[F.ipd] === '' || row[F.ipd] === undefined)) {
+          row[F.ipd] = round2(opdVal * 1.3);
+        }
+
+        const ipdVal = toNumber(row[F.ipd]) ?? 0;
+        if (opdVal > 0 && (row[F.opdForeign] === '' || row[F.opdForeign] === undefined)) {
+          row[F.opdForeign] = round2(opdVal * 1.3);
+        }
+        if (ipdVal > 0 && (row[F.ipdForeign] === '' || row[F.ipdForeign] === undefined)) {
+          row[F.ipdForeign] = round2(ipdVal * 1.3);
+        }
+
+        const computed = computeFields(row);
+        Object.assign(row, computed);
+      } else {
+        const computed = computeFields(row);
+        Object.assign(row, computed);
+      }
+
+      const hasNeg = hasNegativeAfterDiscount(row);
+      if (hasNeg) warningCount++;
+
+      row._isUpdate = isUpdate;
+      row._hasNegative = hasNeg;
+      row._rawIndex = idx + 1;
+
+      processed.push(row);
+    });
+
+    excelState.processedRows = processed;
+
+    // Update statistics chips
+    if (el.statTotalRows) el.statTotalRows.textContent = excelState.rawRows.length.toLocaleString();
+    if (el.statNewRows) el.statNewRows.textContent = newCount.toLocaleString();
+    if (el.statUpdateRows) el.statUpdateRows.textContent = updateCount.toLocaleString();
+
+    if (el.statWarningWrap) {
+      el.statWarningWrap.classList.toggle('hidden', warningCount === 0);
+      if (el.statWarningRows) el.statWarningRows.textContent = warningCount.toLocaleString();
+    }
+
+    if (el.statInvalidWrap) {
+      el.statInvalidWrap.classList.toggle('hidden', invalidCount === 0);
+      if (el.statInvalidRows) el.statInvalidRows.textContent = invalidCount.toLocaleString();
+    }
+
+    if (el.startImportBtn) el.startImportBtn.disabled = processed.length === 0;
+
+    renderPreviewTable();
+  }
+
+  function renderPreviewTable() {
+    if (!el.previewTableHead || !el.previewTableBody) return;
+
+    const rows = excelState.processedRows.slice(0, 10);
+    if (!rows.length) {
+      el.previewTableHead.innerHTML = '';
+      el.previewTableBody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--muted)">ไม่มีรายการที่ตรงกับเงื่อนไขการนำเข้า</td></tr>';
+      return;
+    }
+
+    el.previewTableHead.innerHTML = `
+      <tr>
+        <th>สถานะ</th>
+        <th>รหัสยา (item_code)</th>
+        <th>ชื่อยา (FullName)</th>
+        <th>ราคาต้นทุน</th>
+        <th>ราคา OPD</th>
+        <th>ราคา IPD</th>
+        <th>GM OPD</th>
+      </tr>
+    `;
+
+    el.previewTableBody.innerHTML = rows.map((r) => {
+      const badgeClass = r._isUpdate ? 'update' : 'new';
+      const badgeText = r._isUpdate ? 'อัปเดตเดิม' : 'เพิ่มใหม่';
+      const warnBadge = r._hasNegative ? '<span class="badge warning">ต่ำกว่าทุน</span>' : '';
+
+      return `
+        <tr>
+          <td><span class="badge ${badgeClass}">${badgeText}</span> ${warnBadge}</td>
+          <td><strong>${escapeHtml(r[F.itemCode] || '-')}</strong></td>
+          <td>${escapeHtml(r[F.fullName] || r[F.generic] || '-')}</td>
+          <td>${fmtMoney(r[F.cost])}</td>
+          <td>${fmtMoney(r[F.opd])}</td>
+          <td>${fmtMoney(r[F.ipd])}</td>
+          <td>${fmtPercent(r.gross_margin_opd)}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  function updateImportProgress(current, total, text) {
+    if (!el.importProgressBar || !el.importProgressPercent || !el.importProgressText) return;
+    const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+    el.importProgressBar.style.width = `${percent}%`;
+    el.importProgressPercent.textContent = `${percent}%`;
+    el.importProgressText.textContent = text || '';
+  }
+
+  async function executeExcelImport() {
+    if (excelState.isImporting || !excelState.processedRows.length) return;
+
+    const rows = excelState.processedRows;
+    const warningCount = rows.filter((r) => r._hasNegative).length;
+    if (warningCount > 0) {
+      const ok = window.confirm(`พบรายการที่ราคาหลัง Discount ต่ำกว่าทุน ${warningCount} รายการ ยืนยันการบันทึกหรือไม่?`);
+      if (!ok) return;
+    }
+
+    excelState.isImporting = true;
+    if (el.startImportBtn) el.startImportBtn.disabled = true;
+    if (el.closeExcelModalBtn) el.closeExcelModalBtn.disabled = true;
+    if (el.importProgressWrap) el.importProgressWrap.classList.remove('hidden');
+
+    updateImportProgress(0, rows.length, 'กำลังเตรียมนำเข้าข้อมูล...');
+
+    const CHUNK_SIZE = 50;
+    const chunks = [];
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      chunks.push(rows.slice(i, i + CHUNK_SIZE));
+    }
+
+    let completed = 0;
+    let fallbackMode = false;
+
+    // Test sending first chunk via batch_import
+    try {
+      updateImportProgress(0, rows.length, `กำลังส่งข้อมูลชุดที่ 1 / ${chunks.length} ไปยัง Google Sheet...`);
+      await postBatchImportChunk(chunks[0], el.importModeSelect ? el.importModeSelect.value : 'upsert');
+      completed += chunks[0].length;
+      updateImportProgress(completed, rows.length, `นำเข้าสำเร็จแล้ว ${completed} / ${rows.length} รายการ...`);
+    } catch (err) {
+      console.warn('batch_import failed or not supported, falling back to sequential save/add:', err);
+      fallbackMode = true;
+    }
+
+    if (fallbackMode) {
+      updateImportProgress(0, rows.length, 'กำลังนำเข้าแบบแยกรายการ (Compatibility Mode)...');
+      completed = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const item = rows[i];
+        const action = item._isUpdate ? 'save' : 'add';
+        try {
+          await postAction(action, item);
+          completed++;
+          if (completed % 5 === 0 || completed === rows.length) {
+            updateImportProgress(completed, rows.length, `กำลังบันทึก ${completed} / ${rows.length} รายการ...`);
+          }
+          await delay(200); // Friendly pacing for GAS
+        } catch (err) {
+          console.error('Error importing item:', item, err);
+        }
+      }
+    } else {
+      // Continue remaining chunks with batch_import
+      for (let c = 1; c < chunks.length; c++) {
+        updateImportProgress(completed, rows.length, `กำลังนำเข้าชุดที่ ${c + 1} / ${chunks.length}...`);
+        await postBatchImportChunk(chunks[c], el.importModeSelect ? el.importModeSelect.value : 'upsert');
+        completed += chunks[c].length;
+        updateImportProgress(completed, rows.length, `นำเข้าแล้ว ${completed} / ${rows.length} รายการ...`);
+        await delay(300);
+      }
+    }
+
+    updateImportProgress(rows.length, rows.length, 'นำเข้าข้อมูลเสร็จสมบูรณ์! กำลังรีเฟรชฐานข้อมูล...');
+    showToast(`นำเข้าสำเร็จ ${completed.toLocaleString()} รายการ!`, 'ok');
+
+    await delay(1500);
+    await loadData({ manual: true });
+
+    excelState.isImporting = false;
+    if (el.closeExcelModalBtn) el.closeExcelModalBtn.disabled = false;
+    resetExcelUpload();
+    if (el.excelDialog) el.excelDialog.close();
+    updateFloatingBackButton();
+  }
+
+  function postBatchImportChunk(items, mode) {
+    const url = new URL(WEB_APP_URL);
+    url.searchParams.set('action', 'batch_import');
+    if (APP_TOKEN) url.searchParams.set('token', APP_TOKEN);
+
+    return fetch(url.toString(), {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token: APP_TOKEN, action: 'batch_import', payload: { items, mode } })
+    });
+  }
+
+  function downloadExcelTemplate() {
+    if (!window.XLSX) {
+      showToast('ไม่พบคลัง SheetJS สำหรับสร้างแม่แบบ Excel', 'error');
+      return;
+    }
+
+    const templateData = [
+      {
+        'item_code': '42161608000039',
+        'FullName': 'Paracetamol 500 mg Tablet',
+        'GenercName': 'Paracetamol',
+        'DosageForm': 'TAB',
+        'Unit': 'เม็ด',
+        'Strength': '500 mg',
+        'Major Class': '01.Analgesics & Antipyretics',
+        'Sub Class': 'Paracetamol',
+        'ราคาต้นทุน': 0.50,
+        'ราคา OPD': 1.50,
+        'ราคา IPD': 1.80,
+        'ราคา สกย. OPD': 1.50,
+        'ราคา สกย. IPD': 1.80,
+        'ราคา OPD_Foreigner': 2.00,
+        'ราคา IPD_Foreigner': 2.30,
+        'nhso_heart_price': 1.20
+      },
+      {
+        'item_code': '51142927000001',
+        'FullName': 'Amoxicillin 500 mg Capsule',
+        'GenercName': 'Amoxicillin',
+        'DosageForm': 'CAP',
+        'Unit': 'แคปซูล',
+        'Strength': '500 mg',
+        'Major Class': '08.Anti-Infectives',
+        'Sub Class': 'Penicillins',
+        'ราคาต้นทุน': 1.80,
+        'ราคา OPD': 4.00,
+        'ราคา IPD': 5.00,
+        'ราคา สกย. OPD': 4.00,
+        'ราคา สกย. IPD': 5.00,
+        'ราคา OPD_Foreigner': 6.00,
+        'ราคา IPD_Foreigner': 7.00,
+        'nhso_heart_price': 3.50
+      },
+      {
+        'item_code': '51022060406008',
+        'FullName': 'Omeprazole 20 mg Capsule',
+        'GenercName': 'Omeprazole',
+        'DosageForm': 'CAP',
+        'Unit': 'แคปซูล',
+        'Strength': '20 mg',
+        'Major Class': '04.Gastrointestinal System',
+        'Sub Class': 'Proton Pump Inhibitors',
+        'ราคาต้นทุน': 2.50,
+        'ราคา OPD': 6.00,
+        'ราคา IPD': 7.50,
+        'ราคา สกย. OPD': 6.00,
+        'ราคา สกย. IPD': 7.50,
+        'ราคา OPD_Foreigner': 9.00,
+        'ราคา IPD_Foreigner': 10.50,
+        'nhso_heart_price': 5.00
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(templateData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'DrugTemplate');
+    XLSX.writeFile(workbook, 'drug_import_template.xlsx');
+    showToast('ดาวน์โหลดแม่แบบ Excel (drug_import_template.xlsx) เรียบร้อยแล้ว');
+  }
+
+  function exportCurrentDataToExcel() {
+    if (!window.XLSX) {
+      showToast('ไม่พบคลัง SheetJS สำหรับส่งออก Excel', 'error');
+      return;
+    }
+
+    const dataToExport = (state.filteredRows && state.filteredRows.length) ? state.filteredRows : state.rows;
+    if (!dataToExport.length) {
+      showToast('ยังไม่มีข้อมูลสำหรับส่งออก', 'error');
+      return;
+    }
+
+    const headers = state.headers.length ? state.headers : Object.keys(dataToExport[0] || {});
+    const cleanHeaders = headers.filter((h) => h && !h.startsWith('_'));
+
+    const exportRows = dataToExport.map((r) => {
+      const cleanRow = {};
+      cleanHeaders.forEach((h) => {
+        cleanRow[h] = r[h] ?? '';
+      });
+      return cleanRow;
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'DrugPrices');
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(workbook, `drug_prices_${dateStr}.xlsx`);
+    showToast(`ส่งออกข้อมูล ${exportRows.length.toLocaleString()} รายการเรียบร้อยแล้ว`);
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 })();
