@@ -5,7 +5,7 @@
   const WEB_APP_URL = (CONFIG.WEB_APP_URL || '').trim();
   const APP_TOKEN = CONFIG.APP_TOKEN || '';
   const POLL_INTERVAL_MS = Number(CONFIG.POLL_INTERVAL_MS || 5000);
-  const PAGE_SIZE = Number(CONFIG.PAGE_SIZE || 60);
+  const PAGE_SIZE = Number(CONFIG.PAGE_SIZE || 20);
 
   const F = {
     rowId: 'row_id',
@@ -446,7 +446,13 @@
       });
     });
 
-    el.loadMoreBtn.classList.toggle('hidden', state.visibleCount >= state.filteredRows.length);
+    const hasMore = state.visibleCount < state.filteredRows.length;
+    el.loadMoreBtn.classList.toggle('hidden', !hasMore);
+    if (hasMore) {
+      const remaining = state.filteredRows.length - state.visibleCount;
+      const nextBatch = Math.min(PAGE_SIZE, remaining);
+      el.loadMoreBtn.textContent = `แสดงเพิ่มอีก ${nextBatch.toLocaleString()} รายการ (แสดงอยู่ ${Math.min(state.visibleCount, state.filteredRows.length).toLocaleString()} / ทั้งหมด ${state.filteredRows.length.toLocaleString()})`;
+    }
   }
 
   function cardTemplate(row, index) {
@@ -846,6 +852,10 @@
       window.clearTimeout(timer);
       timer = window.setTimeout(() => fn(...args), wait);
     };
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   // ==========================================
