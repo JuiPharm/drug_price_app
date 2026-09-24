@@ -103,7 +103,8 @@
     lastPricingResult: null,
     proposals: [],
     history: [],
-    centralPolicyLoaded: false
+    centralPolicyLoaded: false,
+    centralPolicyUpdatedAt: ''
   };
 
   const excelState = {
@@ -839,6 +840,7 @@
       pricingSettings.formulas = Object.assign(PricingEngine.cloneDefaultSettings().formulas, payload.settings.formulas || {});
       localStorage.setItem(PRICING_SETTINGS_KEY, JSON.stringify(pricingSettings));
       state.centralPolicyLoaded = true;
+      state.centralPolicyUpdatedAt = payload.updated_at || '';
       renderPricingSettings();
       calculatePricingSimulation();
       if (el.centralPolicyStatus) el.centralPolicyStatus.textContent = 'Central policy active';
@@ -949,12 +951,14 @@
         throw new Error('กรุณาระบุ Approver PIN สำหรับเปลี่ยน Central Policy');
       }
       if (isConfigured()) {
-        await postAction('save_pricing_settings', {
+        const savedPolicy = await postAction('save_pricing_settings', {
           settings: next,
           updated_by: operator,
           approver_pin: el.settingsApproverPin ? el.settingsApproverPin.value : '',
-          previous_settings: previous
+          previous_settings: previous,
+          expected_updated_at: state.centralPolicyUpdatedAt || ''
         });
+        state.centralPolicyUpdatedAt = savedPolicy.updated_at || state.centralPolicyUpdatedAt;
       }
 
       pricingSettings = next;
@@ -1009,13 +1013,15 @@
         throw new Error('กรุณาระบุ Approver PIN สำหรับ Reset Central Policy');
       }
       if (isConfigured()) {
-        await postAction('save_pricing_settings', {
+        const resetPolicy = await postAction('save_pricing_settings', {
           settings: defaults,
           updated_by: operator,
           approver_pin: el.settingsApproverPin ? el.settingsApproverPin.value : '',
           previous_settings: pricingSettings,
+          expected_updated_at: state.centralPolicyUpdatedAt || '',
           note: 'Reset to default policy'
         });
+        state.centralPolicyUpdatedAt = resetPolicy.updated_at || state.centralPolicyUpdatedAt;
       }
       pricingSettings = defaults;
       localStorage.setItem(PRICING_SETTINGS_KEY, JSON.stringify(pricingSettings));
