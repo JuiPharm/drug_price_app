@@ -27,6 +27,7 @@
     gov: 'government_opd_price',
     govAfterDiscount: 'government_after_discount_est',
     nhsoAfterDiscount: 'nhso_after_discount_est',
+    tariffVersion: 'pricing_tariff_version',
     skyOpdDisc: 'ราคาสกย.OPD Discount 20%',
     skyIpdDisc: 'ราคา สกย.IPD Discount 20%',
     skyOpdAfterCost: 'OPD สกย. after discount -Cost',
@@ -53,6 +54,7 @@
     F.gov,
     F.govAfterDiscount,
     F.nhsoAfterDiscount,
+    F.tariffVersion,
     F.skyOpdDisc,
     F.skyIpdDisc,
     F.skyOpdAfterCost,
@@ -86,9 +88,14 @@
     F.skyIpdAfterCost
   ]);
 
-  const EDITABLE_EXCLUDE = new Set([F.rowId, F.updatedAt, F.createdAt, F.skyOpdDisc, F.skyIpdDisc, F.skyOpdAfterCost, F.skyIpdAfterCost]);
+  const EDITABLE_EXCLUDE = new Set([
+    F.rowId, F.updatedAt, F.createdAt,
+    F.skyOpdDisc, F.skyIpdDisc, F.skyOpdAfterCost, F.skyIpdAfterCost,
+    F.govAfterDiscount, F.nhsoAfterDiscount, F.tariffVersion
+  ]);
   const PRICE_CONTROLLED_FIELDS = new Set([
     F.opd, F.ipd, F.opdForeign, F.ipdForeign, F.gov, F.nhso,
+    F.govAfterDiscount, F.nhsoAfterDiscount, F.tariffVersion,
     'gross_margin_opd', 'gross_margin_ipd',
     'gross_margin_opd_foreigner', 'gross_margin_ipd_foreigner',
     'gross_margin_gov', 'gross_margin_nhso'
@@ -141,8 +148,8 @@
     { key: F.skyIpd, label: 'ราคา สกย. IPD', required: false, aliases: ['ราคา สกย. ipd', 'ราคา สกย ipd', 'สกย ipd', 'sky ipd', 'sky_ipd', 'สกย. ipd'] },
     { key: F.opdForeign, label: 'ราคา OPD ต่างชาติ', required: false, aliases: ['ราคา opd_foreigner', 'ราคา opd foreigner', 'opd ต่างชาติ', 'opd foreigner', 'opd_foreigner'] },
     { key: F.ipdForeign, label: 'ราคา IPD ต่างชาติ', required: false, aliases: ['ราคา ipd_foreigner', 'ราคา ipd foreigner', 'ipd ต่างชาติ', 'ipd foreigner', 'ipd_foreigner'] },
-    { key: F.nhso, label: 'ราคา สปสช. (NHSO)', required: false, aliases: ['nhso_heart_price', 'nhso', 'ราคา nhso', 'สปสช', 'ราคา สปสช'] },
-    { key: F.gov, label: 'ราคาราชการ OPD', required: false, aliases: ['government_opd_price', 'gov tariff', 'gov price', 'ราคาราชการ opd', 'ราคา gov', 'ราชการ opd'] },
+    { key: F.nhso, label: 'ราคา NHSO OPD ก่อนลด 40%', required: false, aliases: ['nhso_heart_price', 'nhso', 'ราคา nhso', 'สปสช', 'ราคา สปสช'] },
+    { key: F.gov, label: 'ราคาราชการ OPD ก่อนลด 30%', required: false, aliases: ['government_opd_price', 'gov tariff', 'gov price', 'ราคาราชการ opd', 'ราคา gov', 'ราชการ opd'] },
     { key: 'กลุ่มใบเสร็จ opd', label: 'กลุ่มใบเสร็จ OPD', required: false, aliases: ['กลุ่มใบเสร็จ opd', 'ใบเสร็จ opd'] },
     { key: 'กลุ่มใบเสร็จ ipd', label: 'กลุ่มใบเสร็จ IPD', required: false, aliases: ['กลุ่มใบเสร็จ ipd', 'ใบเสร็จ ipd'] },
     { key: 'กลุ่มใบเสร็จ New SIMB', label: 'กลุ่มใบเสร็จ New SIMB', required: false, aliases: ['กลุ่มใบเสร็จ new simb', 'new simb'] },
