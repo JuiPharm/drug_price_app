@@ -372,3 +372,101 @@ Central Policy ประกอบด้วย:
 - Approver PIN ที่เก็บใน Apps Script Script Properties สำหรับ Pricing authorization
 
 สำหรับ environment ที่ต้องการ user identity/role แบบรายบุคคล แนะนำย้าย authentication ไป Supabase Auth / Google Workspace identity ใน phase ถัดไป โดย Pricing Workflow และ Audit schema รุ่นนี้สามารถนำไปใช้ต่อได้
+
+
+---
+
+# Government / NHSO Gross Tariff Policy v4
+
+## Accounting interpretation
+
+`government_opd_price` และ `nhso_heart_price` เป็น **ราคาตั้งก่อนส่วนลด (Gross/List Tariff)**
+
+ส่วนลดที่เกิดตอนให้บริการ:
+- Government OPD: ลด 30%
+- NHSO OPD: ลด 40%
+
+ราคาหลังส่วนลดไม่จำเป็นต้องเท่ากับ OPD แต่ต้อง **ไม่ต่ำกว่า OPD**
+
+## Source-derived net target
+
+จากข้อมูลเสนอราคายาเดิม pattern ของราคา Government/NHSO ทำหน้าที่เหมือนราคาสุทธิเป้าหมายหลังส่วนลด:
+
+```text
+Gov Net Target  = MAX(OPD, CEIL(IPD × 0.70))
+NHSO Net Target = MAX(OPD, CEIL(IPD × 0.60))
+```
+
+จึงต้อง Gross-up ก่อนบันทึกเป็นราคาป้าย:
+
+```text
+Government Gross Tariff = CEIL(Gov Net Target / 0.70)
+NHSO Gross Tariff       = CEIL(NHSO Net Target / 0.60)
+```
+
+Expected realized revenue:
+
+```text
+Government After Discount = Government Gross × 0.70
+NHSO After Discount       = NHSO Gross × 0.60
+```
+
+Backend จะตรวจว่า:
+
+```text
+Government After Discount >= OPD
+NHSO After Discount >= OPD
+```
+
+และคำนวณ `gross_margin_gov` / `gross_margin_nhso` จาก **ราคาหลังส่วนลด** ไม่ใช่จากราคาป้ายก่อนส่วนลด
+
+## Mandatory policy
+
+Government/NHSO discount และ OPD floor ถูกล็อกใน Code:
+- Government discount = 30%
+- NHSO discount = 40%
+- Gross tariff ปัดขึ้นเต็มบาท
+- After-discount revenue ต้องไม่ต่ำกว่า OPD
+
+ไม่สามารถแก้ % discount หรือปิด floor จากหน้า Settings ได้
+
+IPD / Foreign formula, OPD pricing mode, GM curve และ OPD/IPD rounding policy ยังปรับได้ตาม Workflow
+
+## Database fields
+
+```text
+government_opd_price            Gross tariff ก่อนลด 30%
+government_after_discount_est   รายรับคาดการณ์หลังลด 30%
+nhso_heart_price                Gross tariff ก่อนลด 40%
+nhso_after_discount_est         รายรับคาดการณ์หลังลด 40%
+pricing_tariff_version          GROSS_DISCOUNT_V1
+gross_margin_gov                GM จาก government_after_discount_est
+gross_margin_nhso               GM จาก nhso_after_discount_est
+```
+
+## Upgrade existing Database
+
+หลัง Update `Code.gs` และ Run `setup()`:
+
+1. สำรอง Google Sheet ก่อน
+2. Run `previewGovNhsoGrossTariffMigration()` เพื่อตรวจจำนวนและตัวอย่างรายการที่จะเปลี่ยน
+3. ตรวจผลใน Execution log
+4. เมื่อยืนยันแล้ว Run `migrateLegacyGovNhsoToGrossTariff()` หนึ่งครั้ง
+5. ตรวจคอลัมน์ `government_opd_price`, `government_after_discount_est`, `nhso_heart_price`, `nhso_after_discount_est`, `pricing_tariff_version`
+6. Redeploy Apps Script เป็น New version
+
+Migration จะข้าม row ที่มี `pricing_tariff_version = GROSS_DISCOUNT_V1` อยู่แล้ว
+
+## Example
+
+OPD 46 / IPD 108:
+
+```text
+Gov Net Target = MAX(46, CEIL(108×0.70)) = 76
+Government Gross = CEIL(76/0.70) = 109
+After 30% discount = 109×0.70 = 76.30 >= OPD 46
+
+NHSO Net Target = MAX(46, CEIL(108×0.60)) = 65
+NHSO Gross = CEIL(65/0.60) = 109
+After 40% discount = 109×0.60 = 65.40 >= OPD 46
+```
