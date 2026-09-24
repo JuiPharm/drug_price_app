@@ -6,6 +6,9 @@
   const APP_TOKEN = CONFIG.APP_TOKEN || '';
   const POLL_INTERVAL_MS = Number(CONFIG.POLL_INTERVAL_MS || 5000);
   const PAGE_SIZE = Number(CONFIG.PAGE_SIZE || 20);
+  const PricingEngine = window.PricingEngine;
+  const PRICING_SETTINGS_KEY = 'drug-price-app-pricing-v2';
+  let pricingSettings = PricingEngine ? PricingEngine.cloneDefaultSettings() : null;
 
   const F = {
     rowId: 'row_id',
@@ -20,6 +23,7 @@
     ipdForeign: 'ราคา IPD_Foreigner',
     opdForeign: 'ราคา OPD_Foreigner',
     nhso: 'nhso_heart_price',
+    gov: 'government_opd_price',
     skyOpdDisc: 'ราคาสกย.OPD Discount 20%',
     skyIpdDisc: 'ราคา สกย.IPD Discount 20%',
     skyOpdAfterCost: 'OPD สกย. after discount -Cost',
@@ -43,6 +47,7 @@
     F.opdForeign,
     F.ipdForeign,
     F.nhso,
+    F.gov,
     F.skyOpdDisc,
     F.skyIpdDisc,
     F.skyOpdAfterCost,
@@ -65,6 +70,7 @@
     F.ipdForeign,
     F.opdForeign,
     F.nhso,
+    F.gov,
     F.skyOpdDisc,
     F.skyIpdDisc,
     F.skyOpdAfterCost,
@@ -114,6 +120,7 @@
     { key: F.opdForeign, label: 'ราคา OPD ต่างชาติ', required: false, aliases: ['ราคา opd_foreigner', 'ราคา opd foreigner', 'opd ต่างชาติ', 'opd foreigner', 'opd_foreigner'] },
     { key: F.ipdForeign, label: 'ราคา IPD ต่างชาติ', required: false, aliases: ['ราคา ipd_foreigner', 'ราคา ipd foreigner', 'ipd ต่างชาติ', 'ipd foreigner', 'ipd_foreigner'] },
     { key: F.nhso, label: 'ราคา สปสช. (NHSO)', required: false, aliases: ['nhso_heart_price', 'nhso', 'ราคา nhso', 'สปสช', 'ราคา สปสช'] },
+    { key: F.gov, label: 'ราคาราชการ OPD', required: false, aliases: ['government_opd_price', 'gov tariff', 'gov price', 'ราคาราชการ opd', 'ราคา gov', 'ราชการ opd'] },
     { key: 'กลุ่มใบเสร็จ opd', label: 'กลุ่มใบเสร็จ OPD', required: false, aliases: ['กลุ่มใบเสร็จ opd', 'ใบเสร็จ opd'] },
     { key: 'กลุ่มใบเสร็จ ipd', label: 'กลุ่มใบเสร็จ IPD', required: false, aliases: ['กลุ่มใบเสร็จ ipd', 'ใบเสร็จ ipd'] },
     { key: 'กลุ่มใบเสร็จ New SIMB', label: 'กลุ่มใบเสร็จ New SIMB', required: false, aliases: ['กลุ่มใบเสร็จ new simb', 'new simb'] },
@@ -151,14 +158,37 @@
     saveBtnBottom: byId('saveBtnBottom'),
     autoPriceBtn: byId('autoPriceBtn'),
     toast: byId('toast'),
-    calcCostA: byId('calcCostA'),
-    calcMarginA: byId('calcMarginA'),
-    calcPriceBtn: byId('calcPriceBtn'),
-    calcPriceResult: byId('calcPriceResult'),
-    calcCostB: byId('calcCostB'),
-    calcSaleB: byId('calcSaleB'),
-    calcMarginBtn: byId('calcMarginBtn'),
-    calcMarginResult: byId('calcMarginResult'),
+    pricingCost: byId('pricingCost'),
+    pricingMode: byId('pricingMode'),
+    pricingReason: byId('pricingReason'),
+    pricingOldPrice: byId('pricingOldPrice'),
+    pricingTargetGMField: byId('pricingTargetGMField'),
+    pricingTargetGM: byId('pricingTargetGM'),
+    pricingDesiredPriceField: byId('pricingDesiredPriceField'),
+    pricingDesiredPrice: byId('pricingDesiredPrice'),
+    pricingCalcBtn: byId('pricingCalcBtn'),
+    pricingError: byId('pricingError'),
+    pricingOpdResult: byId('pricingOpdResult'),
+    pricingHistoricalGM: byId('pricingHistoricalGM'),
+    pricingActualGM: byId('pricingActualGM'),
+    pricingMarkup: byId('pricingMarkup'),
+    pricingIpdRatio: byId('pricingIpdRatio'),
+    pricingAlert: byId('pricingAlert'),
+    pricingTariffGrid: byId('pricingTariffGrid'),
+    pricingFloorTrace: byId('pricingFloorTrace'),
+    formulaIpd: byId('formulaIpd'),
+    formulaForeignOpd: byId('formulaForeignOpd'),
+    formulaForeignIpd: byId('formulaForeignIpd'),
+    formulaGov: byId('formulaGov'),
+    formulaNhso: byId('formulaNhso'),
+    pricingRoundingStep: byId('pricingRoundingStep'),
+    pricingRoundingMode: byId('pricingRoundingMode'),
+    applyGovFloor: byId('applyGovFloor'),
+    applyNhsoFloor: byId('applyNhsoFloor'),
+    pricingAnchors: byId('pricingAnchors'),
+    formulaError: byId('formulaError'),
+    savePricingSettingsBtn: byId('savePricingSettingsBtn'),
+    resetPricingSettingsBtn: byId('resetPricingSettingsBtn'),
     currentUrl: byId('currentUrl'),
     pingBtn: byId('pingBtn'),
     copyDiagBtn: byId('copyDiagBtn'),
@@ -203,7 +233,11 @@
 
   function init() {
     el.currentUrl.textContent = WEB_APP_URL || 'ยังไม่ได้ตั้งค่า WEB_APP_URL ใน config.js';
+    loadPricingSettings();
+    renderPricingSettings();
     bindEvents();
+    syncPricingMode();
+    calculatePricingSimulation();
 
     if (!isConfigured()) {
       setStatus('error', 'ยังไม่ได้ตั้งค่า Apps Script URL', 'กรุณาแก้ไฟล์ config.js');
@@ -240,8 +274,13 @@
     el.saveBtnBottom.addEventListener('click', saveCurrent);
     el.autoPriceBtn.addEventListener('click', autoFillPrices);
 
-    el.calcPriceBtn.addEventListener('click', calculateSalePrice);
-    el.calcMarginBtn.addEventListener('click', calculateGrossMargin);
+    if (el.pricingCalcBtn) el.pricingCalcBtn.addEventListener('click', calculatePricingSimulation);
+    if (el.pricingMode) el.pricingMode.addEventListener('change', () => { syncPricingMode(); calculatePricingSimulation(); });
+    [el.pricingCost, el.pricingReason, el.pricingOldPrice, el.pricingTargetGM, el.pricingDesiredPrice]
+      .filter(Boolean)
+      .forEach((node) => node.addEventListener('input', calculatePricingSimulation));
+    if (el.savePricingSettingsBtn) el.savePricingSettingsBtn.addEventListener('click', savePricingSettingsFromUi);
+    if (el.resetPricingSettingsBtn) el.resetPricingSettingsBtn.addEventListener('click', resetPricingSettings);
     el.pingBtn.addEventListener('click', ping);
     el.copyDiagBtn.addEventListener('click', copyDiagnostics);
 
@@ -592,28 +631,35 @@
   }
 
   function autoFillPrices() {
-    if (!state.current) return;
+    if (!state.current || !PricingEngine || !pricingSettings) return;
 
+    const cost = toNumber(state.current[F.cost]) ?? 0;
     const skyOpd = toNumber(state.current[F.skyOpd]);
-    const skyIpd = toNumber(state.current[F.skyIpd]);
-    const opd = toNumber(state.current[F.opd]);
+    let opd = toNumber(state.current[F.opd]);
 
-    if (skyOpd !== null) state.current[F.opd] = round2(skyOpd);
-    const finalOpd = toNumber(state.current[F.opd]) ?? opd ?? 0;
+    if (skyOpd !== null) opd = skyOpd;
 
-    if (skyIpd !== null) {
-      state.current[F.ipd] = round2(skyIpd);
-    } else if (finalOpd > 0) {
-      state.current[F.ipd] = round2(finalOpd * 1.3);
+    try {
+      if (!(opd > 0) && cost > 0) {
+        const suggested = PricingEngine.calculate({ cost, mode: 'historical', reason: 'new' }, pricingSettings);
+        opd = suggested.opd;
+      }
+      if (!(opd >= 0)) throw new Error('กรุณากรอกราคาต้นทุนหรือ OPD ก่อนคำนวณ');
+
+      const tariffs = PricingEngine.deriveTariffs({ cost, opd }, pricingSettings);
+      state.current[F.opd] = tariffs.opd;
+      state.current[F.ipd] = tariffs.ipd;
+      state.current[F.opdForeign] = tariffs.foreignOpd;
+      state.current[F.ipdForeign] = tariffs.foreignIpd;
+      state.current[F.gov] = tariffs.govOpd;
+      state.current[F.nhso] = tariffs.nhsoOpd;
+
+      renderDetailForm();
+      updateNegativeAlert();
+      showToast('คำนวณราคาอัตโนมัติตาม Pricing Policy v2 แล้ว');
+    } catch (err) {
+      showToast('คำนวณราคาไม่สำเร็จ: ' + err.message, 'error');
     }
-
-    const finalIpd = toNumber(state.current[F.ipd]) ?? 0;
-    if (finalOpd > 0) state.current[F.opdForeign] = round2(finalOpd * 1.3);
-    if (finalIpd > 0) state.current[F.ipdForeign] = round2(finalIpd * 1.3);
-
-    renderDetailForm();
-    updateNegativeAlert();
-    showToast('คำนวณราคาอัตโนมัติแล้ว');
   }
 
   function computeFields(row) {
@@ -644,6 +690,8 @@
     if (cost !== null && opdForeign !== null) result['gross_margin_opd_foreigner'] = round2(grossMargin(cost, opdForeign));
     if (cost !== null && ipdForeign !== null) result['gross_margin_ipd_foreigner'] = round2(grossMargin(cost, ipdForeign));
     if (cost !== null && nhso !== null) result['gross_margin_nhso'] = round2(grossMargin(cost, nhso));
+    const gov = toNumber(row[F.gov]);
+    if (cost !== null && gov !== null) result['gross_margin_gov'] = round2(grossMargin(cost, gov));
     return result;
   }
 
@@ -702,25 +750,144 @@
     return (opdAfter !== null && opdAfter < 0) || (ipdAfter !== null && ipdAfter < 0);
   }
 
-  function calculateSalePrice() {
-    const cost = toNumber(el.calcCostA.value);
-    const margin = toNumber(el.calcMarginA.value);
-    if (cost === null || margin === null || margin >= 100) {
-      el.calcPriceResult.textContent = 'กรุณากรอกต้นทุน และ GM น้อยกว่า 100%';
-      return;
+  function loadPricingSettings() {
+    if (!PricingEngine) return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(PRICING_SETTINGS_KEY) || 'null');
+      if (saved && saved.formulas && Array.isArray(saved.anchors)) {
+        pricingSettings = Object.assign(PricingEngine.cloneDefaultSettings(), saved);
+        pricingSettings.formulas = Object.assign(PricingEngine.cloneDefaultSettings().formulas, saved.formulas || {});
+      }
+    } catch (_err) {
+      pricingSettings = PricingEngine.cloneDefaultSettings();
     }
-    const sale = cost / (1 - margin / 100);
-    el.calcPriceResult.textContent = `ราคาขายที่ควรตั้ง = ${fmtMoney(sale)}`;
   }
 
-  function calculateGrossMargin() {
-    const cost = toNumber(el.calcCostB.value);
-    const sale = toNumber(el.calcSaleB.value);
-    if (cost === null || sale === null || sale <= 0) {
-      el.calcMarginResult.textContent = 'กรุณากรอกต้นทุน และราคาขายมากกว่า 0';
-      return;
+  function renderPricingSettings() {
+    if (!PricingEngine || !pricingSettings) return;
+    if (el.formulaIpd) el.formulaIpd.value = pricingSettings.formulas.ipd;
+    if (el.formulaForeignOpd) el.formulaForeignOpd.value = pricingSettings.formulas.foreignOpd;
+    if (el.formulaForeignIpd) el.formulaForeignIpd.value = pricingSettings.formulas.foreignIpd;
+    if (el.formulaGov) el.formulaGov.value = pricingSettings.formulas.govPreFloor;
+    if (el.formulaNhso) el.formulaNhso.value = pricingSettings.formulas.nhsoPreFloor;
+    if (el.pricingRoundingStep) el.pricingRoundingStep.value = pricingSettings.roundingStep;
+    if (el.pricingRoundingMode) el.pricingRoundingMode.value = pricingSettings.roundingMode;
+    if (el.applyGovFloor) el.applyGovFloor.checked = !!pricingSettings.applyGovFloor;
+    if (el.applyNhsoFloor) el.applyNhsoFloor.checked = !!pricingSettings.applyNhsoFloor;
+    if (el.pricingAnchors) el.pricingAnchors.value = JSON.stringify(pricingSettings.anchors, null, 2);
+  }
+
+  function syncPricingMode() {
+    if (!el.pricingMode) return;
+    const mode = el.pricingMode.value;
+    if (el.pricingTargetGMField) el.pricingTargetGMField.classList.toggle('hidden', mode !== 'gm');
+    if (el.pricingDesiredPriceField) el.pricingDesiredPriceField.classList.toggle('hidden', mode !== 'price');
+  }
+
+  function getPricingInput() {
+    return {
+      cost: el.pricingCost ? el.pricingCost.value : '',
+      mode: el.pricingMode ? el.pricingMode.value : 'historical',
+      targetGM: el.pricingTargetGM ? el.pricingTargetGM.value : '',
+      desiredPrice: el.pricingDesiredPrice ? el.pricingDesiredPrice.value : '',
+      reason: el.pricingReason ? el.pricingReason.value : 'new',
+      oldPrice: el.pricingOldPrice ? el.pricingOldPrice.value : ''
+    };
+  }
+
+  function calculatePricingSimulation() {
+    if (!PricingEngine || !pricingSettings || !el.pricingOpdResult) return;
+    if (el.pricingError) el.pricingError.classList.add('hidden');
+    try {
+      const result = PricingEngine.calculate(getPricingInput(), pricingSettings);
+      renderPricingSimulation(result);
+    } catch (err) {
+      if (el.pricingError) {
+        el.pricingError.textContent = err.message;
+        el.pricingError.classList.remove('hidden');
+      }
     }
-    el.calcMarginResult.textContent = `Gross Margin = ${fmtPercent(grossMargin(cost, sale))}`;
+  }
+
+  function renderPricingSimulation(r) {
+    el.pricingOpdResult.textContent = fmtMoney(r.opd) + ' บาท';
+    el.pricingHistoricalGM.textContent = fmtPercent(r.historicalGM);
+    el.pricingActualGM.textContent = fmtPercent(r.actualGM);
+    el.pricingMarkup.textContent = fmtPercent(r.markup);
+    el.pricingIpdRatio.textContent = r.opd > 0 ? r.ipdRatio.toFixed(3) + '×' : '-';
+
+    const tariffs = [
+      ['OPD', r.opd],
+      ['IPD', r.ipd],
+      ['Rub OPD', r.rubOpd],
+      ['Rub IPD', r.rubIpd],
+      ['Foreign OPD', r.foreignOpd],
+      ['Foreign IPD', r.foreignIpd],
+      ['Government OPD', r.govOpd],
+      ['NHSO OPD', r.nhsoOpd]
+    ];
+    el.pricingTariffGrid.innerHTML = tariffs.map(([label, value]) =>
+      '<div class="tariff-card"><span>' + escapeHtml(label) + '</span><strong>' + fmtMoney(value) + ' บาท</strong></div>'
+    ).join('');
+
+    el.pricingFloorTrace.innerHTML =
+      '<div class="trace-row"><span>Government pre-floor</span><b>' + fmtMoney(r.govPreFloor) +
+      '</b><span>→ MAX(OPD ' + fmtMoney(r.opd) + ', pre-floor)</span><b>' + fmtMoney(r.govOpd) +
+      '</b><em>' + (r.govFloorApplied ? 'Floor applied' : 'Discount retained') + '</em></div>' +
+      '<div class="trace-row"><span>NHSO pre-floor</span><b>' + fmtMoney(r.nhsoPreFloor) +
+      '</b><span>→ MAX(OPD ' + fmtMoney(r.opd) + ', pre-floor)</span><b>' + fmtMoney(r.nhsoOpd) +
+      '</b><em>' + (r.nhsoFloorApplied ? 'Floor applied' : 'Discount retained') + '</em></div>';
+
+    if (el.pricingAlert) {
+      el.pricingAlert.classList.toggle('hidden', !r.alerts.length);
+      el.pricingAlert.innerHTML = r.alerts.length
+        ? '<strong>Review:</strong> ' + r.alerts.map(escapeHtml).join(' · ')
+        : '';
+    }
+  }
+
+  function savePricingSettingsFromUi() {
+    if (!PricingEngine) return;
+    if (el.formulaError) el.formulaError.classList.add('hidden');
+    try {
+      const next = PricingEngine.cloneDefaultSettings();
+      next.formulas.ipd = el.formulaIpd.value.trim();
+      next.formulas.foreignOpd = el.formulaForeignOpd.value.trim();
+      next.formulas.foreignIpd = el.formulaForeignIpd.value.trim();
+      next.formulas.govPreFloor = el.formulaGov.value.trim();
+      next.formulas.nhsoPreFloor = el.formulaNhso.value.trim();
+      next.roundingStep = Number(el.pricingRoundingStep.value);
+      next.roundingMode = el.pricingRoundingMode.value;
+      next.applyGovFloor = !!el.applyGovFloor.checked;
+      next.applyNhsoFloor = !!el.applyNhsoFloor.checked;
+      next.anchors = JSON.parse(el.pricingAnchors.value);
+
+      if (!(next.roundingStep > 0)) throw new Error('Rounding step ต้องมากกว่า 0');
+      const vars = { OPD: 100, IPD: 120, COST: 50, GM: 50 };
+      Object.values(next.formulas).forEach((formula) => PricingEngine.evaluateFormula(formula, vars));
+      PricingEngine.historicalGM(500, next.anchors);
+
+      pricingSettings = next;
+      localStorage.setItem(PRICING_SETTINGS_KEY, JSON.stringify(pricingSettings));
+      renderPricingSettings();
+      calculatePricingSimulation();
+      showToast('บันทึก Pricing Settings แล้ว');
+    } catch (err) {
+      if (el.formulaError) {
+        el.formulaError.textContent = 'บันทึกไม่ได้: ' + err.message;
+        el.formulaError.classList.remove('hidden');
+      }
+    }
+  }
+
+  function resetPricingSettings() {
+    if (!PricingEngine) return;
+    if (!window.confirm('คืนค่า Pricing Policy เป็นค่าเริ่มต้นหรือไม่?')) return;
+    pricingSettings = PricingEngine.cloneDefaultSettings();
+    localStorage.setItem(PRICING_SETTINGS_KEY, JSON.stringify(pricingSettings));
+    renderPricingSettings();
+    calculatePricingSimulation();
+    showToast('คืนค่า Pricing Settings แล้ว');
   }
 
   async function ping() {
@@ -1145,29 +1312,35 @@
         newCount++;
       }
 
-      // Auto-fill and compute pricing
-      if (autoCalc) {
+      // Auto-fill using the same Pricing Policy v2 as the calculator.
+      if (autoCalc && PricingEngine && pricingSettings) {
+        const costVal = toNumber(row[F.cost]) ?? 0;
         const skyOpd = toNumber(row[F.skyOpd]);
-        const skyIpd = toNumber(row[F.skyIpd]);
-        const currentOpd = toNumber(row[F.opd]);
+        let opdVal = toNumber(row[F.opd]);
 
-        if (skyOpd !== null && (row[F.opd] === '' || row[F.opd] === undefined)) {
-          row[F.opd] = round2(skyOpd);
+        if (opdVal === null && skyOpd !== null) {
+          opdVal = skyOpd;
+          row[F.opd] = opdVal;
         }
-        const opdVal = toNumber(row[F.opd]) ?? currentOpd ?? 0;
-
-        if (skyIpd !== null && (row[F.ipd] === '' || row[F.ipd] === undefined)) {
-          row[F.ipd] = round2(skyIpd);
-        } else if (opdVal > 0 && (row[F.ipd] === '' || row[F.ipd] === undefined)) {
-          row[F.ipd] = round2(opdVal * 1.3);
+        if (opdVal === null && costVal > 0) {
+          const suggestion = PricingEngine.calculate({ cost: costVal, mode: 'historical', reason: 'new' }, pricingSettings);
+          opdVal = suggestion.opd;
+          row[F.opd] = opdVal;
         }
 
-        const ipdVal = toNumber(row[F.ipd]) ?? 0;
-        if (opdVal > 0 && (row[F.opdForeign] === '' || row[F.opdForeign] === undefined)) {
-          row[F.opdForeign] = round2(opdVal * 1.3);
-        }
-        if (ipdVal > 0 && (row[F.ipdForeign] === '' || row[F.ipdForeign] === undefined)) {
-          row[F.ipdForeign] = round2(ipdVal * 1.3);
+        if (opdVal !== null) {
+          const currentIpd = toNumber(row[F.ipd]);
+          const tariffs = PricingEngine.deriveTariffs({
+            cost: costVal,
+            opd: opdVal,
+            ipdOverride: currentIpd
+          }, pricingSettings);
+
+          if (currentIpd === null) row[F.ipd] = tariffs.ipd;
+          if (toNumber(row[F.opdForeign]) === null) row[F.opdForeign] = tariffs.foreignOpd;
+          if (toNumber(row[F.ipdForeign]) === null) row[F.ipdForeign] = tariffs.foreignIpd;
+          if (toNumber(row[F.gov]) === null) row[F.gov] = tariffs.govOpd;
+          if (toNumber(row[F.nhso]) === null) row[F.nhso] = tariffs.nhsoOpd;
         }
 
         const computed = computeFields(row);
