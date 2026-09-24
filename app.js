@@ -25,6 +25,8 @@
     opdForeign: 'ราคา OPD_Foreigner',
     nhso: 'nhso_heart_price',
     gov: 'government_opd_price',
+    govAfterDiscount: 'government_after_discount_est',
+    nhsoAfterDiscount: 'nhso_after_discount_est',
     skyOpdDisc: 'ราคาสกย.OPD Discount 20%',
     skyIpdDisc: 'ราคา สกย.IPD Discount 20%',
     skyOpdAfterCost: 'OPD สกย. after discount -Cost',
@@ -49,6 +51,8 @@
     F.ipdForeign,
     F.nhso,
     F.gov,
+    F.govAfterDiscount,
+    F.nhsoAfterDiscount,
     F.skyOpdDisc,
     F.skyIpdDisc,
     F.skyOpdAfterCost,
@@ -74,6 +78,8 @@
     F.opdForeign,
     F.nhso,
     F.gov,
+    F.govAfterDiscount,
+    F.nhsoAfterDiscount,
     F.skyOpdDisc,
     F.skyIpdDisc,
     F.skyOpdAfterCost,
@@ -211,12 +217,8 @@
     formulaIpd: byId('formulaIpd'),
     formulaForeignOpd: byId('formulaForeignOpd'),
     formulaForeignIpd: byId('formulaForeignIpd'),
-    formulaGov: byId('formulaGov'),
-    formulaNhso: byId('formulaNhso'),
     pricingRoundingStep: byId('pricingRoundingStep'),
     pricingRoundingMode: byId('pricingRoundingMode'),
-    applyGovFloor: byId('applyGovFloor'),
-    applyNhsoFloor: byId('applyNhsoFloor'),
     pricingAnchors: byId('pricingAnchors'),
     centralPolicyStatus: byId('centralPolicyStatus'),
     centralPolicyMeta: byId('centralPolicyMeta'),
@@ -734,6 +736,7 @@
     const opdForeign = toNumber(row[F.opdForeign]);
     const ipdForeign = toNumber(row[F.ipdForeign]);
     const nhso = toNumber(row[F.nhso]);
+    const gov = toNumber(row[F.gov]);
 
     const result = {};
     if (skyOpd !== null) result[F.skyOpdDisc] = round2(skyOpd * 0.8);
@@ -752,9 +755,16 @@
     }
     if (cost !== null && opdForeign !== null) result['gross_margin_opd_foreigner'] = round2(grossMargin(cost, opdForeign));
     if (cost !== null && ipdForeign !== null) result['gross_margin_ipd_foreigner'] = round2(grossMargin(cost, ipdForeign));
-    if (cost !== null && nhso !== null) result['gross_margin_nhso'] = round2(grossMargin(cost, nhso));
-    const gov = toNumber(row[F.gov]);
-    if (cost !== null && gov !== null) result['gross_margin_gov'] = round2(grossMargin(cost, gov));
+    // Government/NHSO fields are GROSS list tariffs before discount.
+    // Profitability must be evaluated from expected realized revenue AFTER discount.
+    if (gov !== null) {
+      result[F.govAfterDiscount] = round2(gov * (1 - PricingEngine.GOV_DISCOUNT_RATE));
+      if (cost !== null) result['gross_margin_gov'] = round2(grossMargin(cost, result[F.govAfterDiscount]));
+    }
+    if (nhso !== null) {
+      result[F.nhsoAfterDiscount] = round2(nhso * (1 - PricingEngine.NHSO_DISCOUNT_RATE));
+      if (cost !== null) result['gross_margin_nhso'] = round2(grossMargin(cost, result[F.nhsoAfterDiscount]));
+    }
     return result;
   }
 
@@ -859,12 +869,8 @@
     if (el.formulaIpd) el.formulaIpd.value = pricingSettings.formulas.ipd;
     if (el.formulaForeignOpd) el.formulaForeignOpd.value = pricingSettings.formulas.foreignOpd;
     if (el.formulaForeignIpd) el.formulaForeignIpd.value = pricingSettings.formulas.foreignIpd;
-    if (el.formulaGov) el.formulaGov.value = pricingSettings.formulas.govPreFloor;
-    if (el.formulaNhso) el.formulaNhso.value = pricingSettings.formulas.nhsoPreFloor;
     if (el.pricingRoundingStep) el.pricingRoundingStep.value = pricingSettings.roundingStep;
     if (el.pricingRoundingMode) el.pricingRoundingMode.value = pricingSettings.roundingMode;
-    if (el.applyGovFloor) el.applyGovFloor.checked = !!pricingSettings.applyGovFloor;
-    if (el.applyNhsoFloor) el.applyNhsoFloor.checked = !!pricingSettings.applyNhsoFloor;
     if (el.pricingAnchors) el.pricingAnchors.value = JSON.stringify(pricingSettings.anchors, null, 2);
   }
 
@@ -915,20 +921,20 @@
       ['Rub IPD', r.rubIpd],
       ['Foreign OPD', r.foreignOpd],
       ['Foreign IPD', r.foreignIpd],
-      ['Government OPD', r.govOpd],
-      ['NHSO OPD', r.nhsoOpd]
+      ['Government OPD · ก่อนลด 30%', r.govGrossTariff],
+      ['NHSO OPD · ก่อนลด 40%', r.nhsoGrossTariff]
     ];
     el.pricingTariffGrid.innerHTML = tariffs.map(([label, value]) =>
       '<div class="tariff-card"><span>' + escapeHtml(label) + '</span><strong>' + fmtMoney(value) + ' บาท</strong></div>'
     ).join('');
 
     el.pricingFloorTrace.innerHTML =
-      '<div class="trace-row"><span>Government pre-floor</span><b>' + fmtMoney(r.govPreFloor) +
-      '</b><span>→ MAX(OPD ' + fmtMoney(r.opd) + ', pre-floor)</span><b>' + fmtMoney(r.govOpd) +
-      '</b><em>' + (r.govFloorApplied ? 'Floor applied' : 'Discount retained') + '</em></div>' +
-      '<div class="trace-row"><span>NHSO pre-floor</span><b>' + fmtMoney(r.nhsoPreFloor) +
-      '</b><span>→ MAX(OPD ' + fmtMoney(r.opd) + ', pre-floor)</span><b>' + fmtMoney(r.nhsoOpd) +
-      '</b><em>' + (r.nhsoFloorApplied ? 'Floor applied' : 'Discount retained') + '</em></div>';
+      '<div class="trace-row tariff-trace"><span>Government net target</span><b>' + fmtMoney(r.govNetTarget) +
+      '</b><span>Gross-up ÷70% → ป้าย ' + fmtMoney(r.govGrossTariff) + ' → ลด 30%</span><b>' + fmtMoney(r.govAfterDiscount) +
+      '</b><em>Net GM ' + fmtPercent(r.govNetGM) + (r.govAfterDiscount >= r.opd ? ' · ≥ OPD' : ' · ERROR < OPD') + '</em></div>' +
+      '<div class="trace-row tariff-trace"><span>NHSO net target</span><b>' + fmtMoney(r.nhsoNetTarget) +
+      '</b><span>Gross-up ÷60% → ป้าย ' + fmtMoney(r.nhsoGrossTariff) + ' → ลด 40%</span><b>' + fmtMoney(r.nhsoAfterDiscount) +
+      '</b><em>Net GM ' + fmtPercent(r.nhsoNetGM) + (r.nhsoAfterDiscount >= r.opd ? ' · ≥ OPD' : ' · ERROR < OPD') + '</em></div>';
 
     if (el.pricingAlert) {
       el.pricingAlert.classList.toggle('hidden', !r.alerts.length);
@@ -984,12 +990,8 @@
     next.formulas.ipd = el.formulaIpd.value.trim();
     next.formulas.foreignOpd = el.formulaForeignOpd.value.trim();
     next.formulas.foreignIpd = el.formulaForeignIpd.value.trim();
-    next.formulas.govPreFloor = el.formulaGov.value.trim();
-    next.formulas.nhsoPreFloor = el.formulaNhso.value.trim();
     next.roundingStep = Number(el.pricingRoundingStep.value);
     next.roundingMode = el.pricingRoundingMode.value;
-    next.applyGovFloor = !!el.applyGovFloor.checked;
-    next.applyNhsoFloor = !!el.applyNhsoFloor.checked;
     next.anchors = JSON.parse(el.pricingAnchors.value);
 
     if (!(next.roundingStep > 0)) throw new Error('Rounding step ต้องมากกว่า 0');
@@ -1121,8 +1123,12 @@
       proposed_ipd: r.ipd,
       proposed_opd_foreign: r.foreignOpd,
       proposed_ipd_foreign: r.foreignIpd,
-      proposed_gov: r.govOpd,
-      proposed_nhso: r.nhsoOpd,
+      proposed_gov: r.govGrossTariff,
+      proposed_nhso: r.nhsoGrossTariff,
+      proposed_gov_after_discount: r.govAfterDiscount,
+      proposed_nhso_after_discount: r.nhsoAfterDiscount,
+      gov_net_target: r.govNetTarget,
+      nhso_net_target: r.nhsoNetTarget,
       historical_gm: r.historicalGM,
       target_gm: r.targetGM,
       actual_gm: r.actualGM,
@@ -1202,14 +1208,16 @@
           <div class="proposal-price-grid">
             ${priceDeltaCell('OPD', p.current_opd, p.proposed_opd)}
             ${priceDeltaCell('IPD', p.current_ipd, p.proposed_ipd)}
-            ${priceDeltaCell('Government', p.current_gov, p.proposed_gov)}
-            ${priceDeltaCell('NHSO', p.current_nhso, p.proposed_nhso)}
+            ${priceDeltaCell('Government gross', p.current_gov, p.proposed_gov)}
+            ${priceDeltaCell('NHSO gross', p.current_nhso, p.proposed_nhso)}
           </div>
           <div class="proposal-meta">
             <span>GM ใหม่ <b>${fmtPercent(p.actual_gm)}</b></span>
             <span>Historical GM <b>${fmtPercent(p.historical_gm)}</b></span>
             <span>Reason <b>${escapeHtml(p.pricing_reason || '-')}</b></span>
             <span>Mode <b>${escapeHtml(p.pricing_mode || '-')}</b></span>
+            <span>Gov หลังลด 30% <b>${fmtMoney(p.proposed_gov_after_discount)}</b></span>
+            <span>NHSO หลังลด 40% <b>${fmtMoney(p.proposed_nhso_after_discount)}</b></span>
           </div>
           ${p.notes ? '<div class="proposal-note">' + escapeHtml(p.notes) + '</div>' : ''}
           ${p.review_note ? '<div class="proposal-note review-note">Review: ' + escapeHtml(p.review_note) + '</div>' : ''}
