@@ -56,6 +56,7 @@ function setup() {
     'gross_margin_ipd_foreigner',
     'gross_margin_opd_foreigner',
     'government_opd_price',
+    'nhso_heart_price',
     'government_after_discount_est',
     'nhso_after_discount_est',
     'pricing_tariff_version',
