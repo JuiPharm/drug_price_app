@@ -13,19 +13,20 @@
     { cost: 20000, gm: 26 }
   ];
 
+  const GOV_DISCOUNT_RATE = 0.30;
+  const NHSO_DISCOUNT_RATE = 0.40;
+  const GOV_FACTOR = 1 - GOV_DISCOUNT_RATE;
+  const NHSO_FACTOR = 1 - NHSO_DISCOUNT_RATE;
+
   const DEFAULT_SETTINGS = {
     roundingStep: 1,
     roundingMode: 'CEIL',
-    applyGovFloor: true,
-    applyNhsoFloor: true,
     formulas: {
       ipd: 'OPD*1.20',
       rubOpd: 'OPD',
       rubIpd: 'IPD',
       foreignOpd: 'OPD*1.30',
-      foreignIpd: 'IPD*1.30',
-      govPreFloor: 'IPD*0.70',
-      nhsoPreFloor: 'IPD*0.60'
+      foreignIpd: 'IPD*1.30'
     },
     anchors: DEFAULT_ANCHORS.map(function (x) { return { cost: x.cost, gm: x.gm }; })
   };
@@ -218,9 +219,12 @@
     if (!settings) return base;
     if (settings.roundingStep !== undefined) base.roundingStep = Number(settings.roundingStep);
     if (settings.roundingMode) base.roundingMode = settings.roundingMode;
-    if (settings.applyGovFloor !== undefined) base.applyGovFloor = !!settings.applyGovFloor;
-    if (settings.applyNhsoFloor !== undefined) base.applyNhsoFloor = !!settings.applyNhsoFloor;
-    if (settings.formulas) base.formulas = Object.assign(base.formulas, settings.formulas);
+    if (settings.formulas) {
+      const allowed = ['ipd', 'rubOpd', 'rubIpd', 'foreignOpd', 'foreignIpd'];
+      allowed.forEach(function (key) {
+        if (settings.formulas[key]) base.formulas[key] = settings.formulas[key];
+      });
+    }
     if (Array.isArray(settings.anchors)) base.anchors = settings.anchors;
     return base;
   }
@@ -245,10 +249,23 @@
     const rubIpd = roundTo(evaluateFormula(settings.formulas.rubIpd, vars), settings.roundingStep, settings.roundingMode);
     const foreignOpd = roundTo(evaluateFormula(settings.formulas.foreignOpd, vars), settings.roundingStep, settings.roundingMode);
     const foreignIpd = roundTo(evaluateFormula(settings.formulas.foreignIpd, vars), settings.roundingStep, settings.roundingMode);
-    const govPreFloor = roundTo(evaluateFormula(settings.formulas.govPreFloor, vars), settings.roundingStep, settings.roundingMode);
-    const nhsoPreFloor = roundTo(evaluateFormula(settings.formulas.nhsoPreFloor, vars), settings.roundingStep, settings.roundingMode);
-    const govOpd = settings.applyGovFloor ? Math.max(opd, govPreFloor) : govPreFloor;
-    const nhsoOpd = settings.applyNhsoFloor ? Math.max(opd, nhsoPreFloor) : nhsoPreFloor;
+
+    // Source-derived net targets:
+    // Gov net target  = MAX(OPD, CEIL(IPD * 70%))
+    // NHSO net target = MAX(OPD, CEIL(IPD * 60%))
+    // Database tariffs are GROSS prices BEFORE the patient discount is applied.
+    const govFromIpdNet = roundTo(ipd * GOV_FACTOR, 1, 'CEIL');
+    const nhsoFromIpdNet = roundTo(ipd * NHSO_FACTOR, 1, 'CEIL');
+    const govNetTarget = Math.max(opd, govFromIpdNet);
+    const nhsoNetTarget = Math.max(opd, nhsoFromIpdNet);
+
+    // Gross-up the target net prices. Whole-baht ceiling is mandatory so the
+    // realized amount after discount can never fall below the target net price.
+    const govGrossTariff = roundTo(govNetTarget / GOV_FACTOR, 1, 'CEIL');
+    const nhsoGrossTariff = roundTo(nhsoNetTarget / NHSO_FACTOR, 1, 'CEIL');
+
+    const govAfterDiscount = Number((govGrossTariff * GOV_FACTOR).toFixed(2));
+    const nhsoAfterDiscount = Number((nhsoGrossTariff * NHSO_FACTOR).toFixed(2));
 
     return {
       opd: opd,
@@ -257,13 +274,29 @@
       rubIpd: rubIpd,
       foreignOpd: foreignOpd,
       foreignIpd: foreignIpd,
-      govPreFloor: govPreFloor,
-      nhsoPreFloor: nhsoPreFloor,
-      govOpd: govOpd,
-      nhsoOpd: nhsoOpd,
+
+      govDiscountRate: GOV_DISCOUNT_RATE,
+      nhsoDiscountRate: NHSO_DISCOUNT_RATE,
+      govFromIpdNet: govFromIpdNet,
+      nhsoFromIpdNet: nhsoFromIpdNet,
+      govNetTarget: govNetTarget,
+      nhsoNetTarget: nhsoNetTarget,
+      govGrossTariff: govGrossTariff,
+      nhsoGrossTariff: nhsoGrossTariff,
+      govAfterDiscount: govAfterDiscount,
+      nhsoAfterDiscount: nhsoAfterDiscount,
+      govNetGM: govAfterDiscount > 0 ? grossMargin(cost, govAfterDiscount) : 0,
+      nhsoNetGM: nhsoAfterDiscount > 0 ? grossMargin(cost, nhsoAfterDiscount) : 0,
+
+      // Backward-compatible aliases: these now mean GROSS list tariffs.
+      govOpd: govGrossTariff,
+      nhsoOpd: nhsoGrossTariff,
+      govPreFloor: govFromIpdNet,
+      nhsoPreFloor: nhsoFromIpdNet,
+
       ipdRatio: opd > 0 ? ipd / opd : 0,
-      govFloorApplied: settings.applyGovFloor && govPreFloor < opd,
-      nhsoFloorApplied: settings.applyNhsoFloor && nhsoPreFloor < opd
+      govFloorApplied: govFromIpdNet < opd,
+      nhsoFloorApplied: nhsoFromIpdNet < opd
     };
   }
 
@@ -323,6 +356,8 @@
   return {
     DEFAULT_ANCHORS: DEFAULT_ANCHORS,
     DEFAULT_SETTINGS: DEFAULT_SETTINGS,
+    GOV_DISCOUNT_RATE: GOV_DISCOUNT_RATE,
+    NHSO_DISCOUNT_RATE: NHSO_DISCOUNT_RATE,
     cloneDefaultSettings: cloneDefaultSettings,
     evaluateFormula: evaluateFormula,
     historicalGM: historicalGM,

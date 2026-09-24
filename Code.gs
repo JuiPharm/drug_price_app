@@ -7,6 +7,12 @@
  * 3. doPost(e) - สำหรับบันทึกข้อมูล (save, add, delete, batch_import)
  */
 
+const GOV_DISCOUNT_RATE = 0.30;
+const NHSO_DISCOUNT_RATE = 0.40;
+const GOV_FACTOR = 1 - GOV_DISCOUNT_RATE;
+const NHSO_FACTOR = 1 - NHSO_DISCOUNT_RATE;
+const TARIFF_POLICY_VERSION = 'GROSS_DISCOUNT_V1';
+
 const CONFIG = {
   SHEET_NAME: 'DataBase',
   PRICING_SETTINGS_SHEET: 'Pricing_Settings',
@@ -50,6 +56,10 @@ function setup() {
     'gross_margin_ipd_foreigner',
     'gross_margin_opd_foreigner',
     'government_opd_price',
+    'nhso_heart_price',
+    'government_after_discount_est',
+    'nhso_after_discount_est',
+    'pricing_tariff_version',
     'gross_margin_gov',
     'gross_margin_nhso'
   ];
@@ -103,7 +113,7 @@ function doGet(e) {
       result = {
         ok: true,
         now: new Date().toISOString(),
-        version: '3.0.0-pricing-workflow',
+        version: '4.0.0-gross-tariff',
         pricingWorkflowReady: pricingWorkflowReady_()
       };
     } else if (action === 'list') {
@@ -512,8 +522,9 @@ function setupPricingWorkflowSheets_() {
     'current_ipd', 'proposed_ipd',
     'current_opd_foreign', 'proposed_opd_foreign',
     'current_ipd_foreign', 'proposed_ipd_foreign',
-    'current_gov', 'proposed_gov',
-    'current_nhso', 'proposed_nhso',
+    'current_gov', 'proposed_gov', 'proposed_gov_after_discount', 'gov_net_target',
+    'current_nhso', 'proposed_nhso', 'proposed_nhso_after_discount', 'nhso_net_target',
+    'tariff_policy_version',
     'historical_gm', 'target_gm', 'actual_gm', 'markup',
     'pricing_mode', 'pricing_reason', 'old_anchor', 'notes',
     'status', 'submitted_by', 'submitted_at',
@@ -535,16 +546,12 @@ function setupPricingWorkflowSheets_() {
     const defaultSettings = {
       roundingStep: 1,
       roundingMode: 'CEIL',
-      applyGovFloor: true,
-      applyNhsoFloor: true,
       formulas: {
         ipd: 'OPD*1.20',
         rubOpd: 'OPD',
         rubIpd: 'IPD',
         foreignOpd: 'OPD*1.30',
-        foreignIpd: 'IPD*1.30',
-        govPreFloor: 'IPD*0.70',
-        nhsoPreFloor: 'IPD*0.60'
+        foreignIpd: 'IPD*1.30'
       },
       anchors: [
         {cost:5,gm:86},{cost:10,gm:83},{cost:25,gm:78},{cost:50,gm:74},
@@ -684,7 +691,7 @@ function savePricingSettingsUnlocked_(payload) {
 
 function validatePricingSettingsPayload_(settings) {
   if (!settings.formulas || typeof settings.formulas !== 'object') throw new Error('Missing pricing formulas');
-  const requiredFormulaKeys = ['ipd', 'rubOpd', 'rubIpd', 'foreignOpd', 'foreignIpd', 'govPreFloor', 'nhsoPreFloor'];
+  const requiredFormulaKeys = ['ipd', 'rubOpd', 'rubIpd', 'foreignOpd', 'foreignIpd'];
   requiredFormulaKeys.forEach(k => {
     if (!String(settings.formulas[k] || '').trim()) throw new Error('Missing formula: ' + k);
   });
@@ -716,6 +723,10 @@ function submitPricingProposalUnlocked_(payload) {
   const now = new Date().toISOString();
   const policySnapshot = proposal.policy_snapshot_json || JSON.stringify((getPricingSettings_()).settings);
 
+  const proposedOpd = requireNumber_(proposal.proposed_opd, 'proposed_opd');
+  const proposedIpd = requireNumber_(proposal.proposed_ipd, 'proposed_ipd');
+  const mandatoryTariffs = calculateMandatoryGovNhsoTariffs_(proposedOpd, proposedIpd);
+
   const rowObj = {
     proposal_id: proposalId,
     row_id: current.row.row_id || rowId,
@@ -723,17 +734,22 @@ function submitPricingProposalUnlocked_(payload) {
     drug_name: proposal.drug_name || current.row.FullName || current.row.GenercName || '',
     cost: current.row['ราคาต้นทุน'] !== undefined ? current.row['ราคาต้นทุน'] : proposal.cost,
     current_opd: current.row['ราคา OPD'] || '',
-    proposed_opd: requireNumber_(proposal.proposed_opd, 'proposed_opd'),
+    proposed_opd: proposedOpd,
     current_ipd: current.row['ราคา IPD'] || '',
-    proposed_ipd: requireNumber_(proposal.proposed_ipd, 'proposed_ipd'),
+    proposed_ipd: proposedIpd,
     current_opd_foreign: current.row['ราคา OPD_Foreigner'] || '',
     proposed_opd_foreign: requireNumber_(proposal.proposed_opd_foreign, 'proposed_opd_foreign'),
     current_ipd_foreign: current.row['ราคา IPD_Foreigner'] || '',
     proposed_ipd_foreign: requireNumber_(proposal.proposed_ipd_foreign, 'proposed_ipd_foreign'),
     current_gov: current.row['government_opd_price'] || '',
-    proposed_gov: requireNumber_(proposal.proposed_gov, 'proposed_gov'),
+    proposed_gov: mandatoryTariffs.govGross,
+    proposed_gov_after_discount: mandatoryTariffs.govAfterDiscount,
+    gov_net_target: mandatoryTariffs.govNetTarget,
     current_nhso: current.row['nhso_heart_price'] || '',
-    proposed_nhso: requireNumber_(proposal.proposed_nhso, 'proposed_nhso'),
+    proposed_nhso: mandatoryTariffs.nhsoGross,
+    proposed_nhso_after_discount: mandatoryTariffs.nhsoAfterDiscount,
+    nhso_net_target: mandatoryTariffs.nhsoNetTarget,
+    tariff_policy_version: TARIFF_POLICY_VERSION,
     historical_gm: numberOrBlank_(proposal.historical_gm),
     target_gm: numberOrBlank_(proposal.target_gm),
     actual_gm: numberOrBlank_(proposal.actual_gm),
@@ -808,19 +824,39 @@ function approvePricingProposalUnlocked_(payload) {
 
   const before = extractPriceSnapshot_(db.row);
 
+  // Recalculate mandatory Government/NHSO tariffs on the server at approval time.
+  // This prevents browser-side tampering and blocks legacy/net-price proposals.
+  const mandatoryTariffs = calculateMandatoryGovNhsoTariffs_(
+    requireNumber_(found.row.proposed_opd, 'proposed_opd'),
+    requireNumber_(found.row.proposed_ipd, 'proposed_ipd')
+  );
+  if (
+    normalizeComparablePrice_(found.row.proposed_gov) !== normalizeComparablePrice_(mandatoryTariffs.govGross) ||
+    normalizeComparablePrice_(found.row.proposed_nhso) !== normalizeComparablePrice_(mandatoryTariffs.nhsoGross) ||
+    String(found.row.tariff_policy_version || '') !== TARIFF_POLICY_VERSION
+  ) {
+    throw new Error(
+      'TARIFF_VALIDATION_ERROR: Proposal ใช้กติกา Government/NHSO รุ่นเก่าหรือราคาไม่ตรงกับ Mandatory Policy. ' +
+      'กรุณายกเลิกและสร้างข้อเสนอใหม่.'
+    );
+  }
+
   const update = {
     'ราคา OPD': found.row.proposed_opd,
     'ราคา IPD': found.row.proposed_ipd,
     'ราคา OPD_Foreigner': found.row.proposed_opd_foreign,
     'ราคา IPD_Foreigner': found.row.proposed_ipd_foreign,
-    'government_opd_price': found.row.proposed_gov,
-    'nhso_heart_price': found.row.proposed_nhso,
+    'government_opd_price': mandatoryTariffs.govGross,
+    'government_after_discount_est': mandatoryTariffs.govAfterDiscount,
+    'nhso_heart_price': mandatoryTariffs.nhsoGross,
+    'nhso_after_discount_est': mandatoryTariffs.nhsoAfterDiscount,
+    'pricing_tariff_version': TARIFF_POLICY_VERSION,
     'gross_margin_opd': found.row.actual_gm,
     'gross_margin_ipd': calculateGM_(found.row.cost, found.row.proposed_ipd),
     'gross_margin_opd_foreigner': calculateGM_(found.row.cost, found.row.proposed_opd_foreign),
     'gross_margin_ipd_foreigner': calculateGM_(found.row.cost, found.row.proposed_ipd_foreign),
-    'gross_margin_gov': calculateGM_(found.row.cost, found.row.proposed_gov),
-    'gross_margin_nhso': calculateGM_(found.row.cost, found.row.proposed_nhso),
+    'gross_margin_gov': calculateGM_(found.row.cost, mandatoryTariffs.govAfterDiscount),
+    'gross_margin_nhso': calculateGM_(found.row.cost, mandatoryTariffs.nhsoAfterDiscount),
     'updated_at': new Date().toISOString(),
     'last_edited_by': reviewer
   };
@@ -1079,7 +1115,10 @@ function extractPriceSnapshot_(row) {
     opd_foreign: row['ราคา OPD_Foreigner'] || '',
     ipd_foreign: row['ราคา IPD_Foreigner'] || '',
     gov: row['government_opd_price'] || '',
+    gov_after_discount: row['government_after_discount_est'] || '',
     nhso: row['nhso_heart_price'] || '',
+    nhso_after_discount: row['nhso_after_discount_est'] || '',
+    tariff_policy_version: row['pricing_tariff_version'] || '',
     gross_margin_opd: row['gross_margin_opd'] || '',
     gross_margin_ipd: row['gross_margin_ipd'] || '',
     gross_margin_gov: row['gross_margin_gov'] || '',
@@ -1095,10 +1134,140 @@ function extractProposalPriceSnapshot_(row) {
     opd_foreign: row.proposed_opd_foreign || '',
     ipd_foreign: row.proposed_ipd_foreign || '',
     gov: row.proposed_gov || '',
+    gov_after_discount: row.proposed_gov_after_discount || '',
+    gov_net_target: row.gov_net_target || '',
     nhso: row.proposed_nhso || '',
+    nhso_after_discount: row.proposed_nhso_after_discount || '',
+    nhso_net_target: row.nhso_net_target || '',
+    tariff_policy_version: row.tariff_policy_version || '',
     actual_gm: row.actual_gm || '',
     markup: row.markup || ''
   };
+}
+
+function calculateMandatoryGovNhsoTariffs_(opdValue, ipdValue) {
+  const opd = requireNumber_(opdValue, 'OPD');
+  const ipd = requireNumber_(ipdValue, 'IPD');
+
+  // Historical Source pattern = intended NET price after scheme discount.
+  const govFromIpdNet = Math.ceil(ipd * GOV_FACTOR);
+  const nhsoFromIpdNet = Math.ceil(ipd * NHSO_FACTOR);
+  const govNetTarget = Math.max(opd, govFromIpdNet);
+  const nhsoNetTarget = Math.max(opd, nhsoFromIpdNet);
+
+  // Stored tariff = GROSS list price before discount.
+  const govGross = Math.ceil(govNetTarget / GOV_FACTOR);
+  const nhsoGross = Math.ceil(nhsoNetTarget / NHSO_FACTOR);
+  const govAfterDiscount = Math.round(govGross * GOV_FACTOR * 100) / 100;
+  const nhsoAfterDiscount = Math.round(nhsoGross * NHSO_FACTOR * 100) / 100;
+
+  if (govAfterDiscount + 1e-9 < opd || nhsoAfterDiscount + 1e-9 < opd) {
+    throw new Error('TARIFF_POLICY_ERROR: ราคาหลังส่วนลดต่ำกว่า OPD');
+  }
+
+  return {
+    govFromIpdNet: govFromIpdNet,
+    nhsoFromIpdNet: nhsoFromIpdNet,
+    govNetTarget: govNetTarget,
+    nhsoNetTarget: nhsoNetTarget,
+    govGross: govGross,
+    nhsoGross: nhsoGross,
+    govAfterDiscount: govAfterDiscount,
+    nhsoAfterDiscount: nhsoAfterDiscount
+  };
+}
+
+/**
+ * Preview only. Does not change data.
+ * Use before migration to count rows that still use legacy/net Government/NHSO tariffs.
+ */
+function previewGovNhsoGrossTariffMigration() {
+  setup();
+  const sheet = getSheet_();
+  const headers = getHeaders_(sheet);
+  if (sheet.getLastRow() < CONFIG.DATA_START_ROW) return { ok: true, rows: 0, pendingMigration: 0 };
+
+  const values = sheet.getRange(CONFIG.DATA_START_ROW, 1, sheet.getLastRow() - CONFIG.DATA_START_ROW + 1, headers.length).getValues();
+  const rows = values.map(v => rowToObject_(headers, v));
+  let eligible = 0;
+  let pendingMigration = 0;
+  const examples = [];
+
+  rows.forEach(row => {
+    const opd = Number(row['ราคา OPD']);
+    const ipd = Number(row['ราคา IPD']);
+    if (!(opd >= 0) || !(ipd >= 0)) return;
+    eligible++;
+    if (String(row['pricing_tariff_version'] || '') !== TARIFF_POLICY_VERSION) {
+      pendingMigration++;
+      if (examples.length < 10) {
+        const t = calculateMandatoryGovNhsoTariffs_(opd, ipd);
+        examples.push({
+          item_code: row.item_code || '',
+          opd: opd,
+          ipd: ipd,
+          current_gov: row['government_opd_price'] || '',
+          new_gov_gross: t.govGross,
+          gov_after_discount: t.govAfterDiscount,
+          current_nhso: row['nhso_heart_price'] || '',
+          new_nhso_gross: t.nhsoGross,
+          nhso_after_discount: t.nhsoAfterDiscount
+        });
+      }
+    }
+  });
+
+  const result = { ok: true, rows: eligible, pendingMigration: pendingMigration, examples: examples };
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+/**
+ * One-time migration. BACK UP the spreadsheet first.
+ * Recalculates Government/NHSO as gross list tariffs before discount.
+ */
+function migrateLegacyGovNhsoToGrossTariff() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    setup();
+    const sheet = getSheet_();
+    const headers = getHeaders_(sheet);
+    if (sheet.getLastRow() < CONFIG.DATA_START_ROW) return { ok: true, migrated: 0 };
+
+    const rowCount = sheet.getLastRow() - CONFIG.DATA_START_ROW + 1;
+    const range = sheet.getRange(CONFIG.DATA_START_ROW, 1, rowCount, headers.length);
+    const values = range.getValues();
+    let migrated = 0;
+
+    const idx = {};
+    headers.forEach((h, i) => { idx[h] = i; });
+
+    values.forEach(row => {
+      const opd = Number(row[idx['ราคา OPD']]);
+      const ipd = Number(row[idx['ราคา IPD']]);
+      if (!(opd >= 0) || !(ipd >= 0)) return;
+      if (String(row[idx['pricing_tariff_version']] || '') === TARIFF_POLICY_VERSION) return;
+
+      const t = calculateMandatoryGovNhsoTariffs_(opd, ipd);
+      const cost = Number(row[idx['ราคาต้นทุน']]);
+
+      row[idx['government_opd_price']] = t.govGross;
+      row[idx['government_after_discount_est']] = t.govAfterDiscount;
+      row[idx['nhso_heart_price']] = t.nhsoGross;
+      row[idx['nhso_after_discount_est']] = t.nhsoAfterDiscount;
+      row[idx['pricing_tariff_version']] = TARIFF_POLICY_VERSION;
+      if (idx['gross_margin_gov'] !== undefined) row[idx['gross_margin_gov']] = calculateGM_(cost, t.govAfterDiscount);
+      if (idx['gross_margin_nhso'] !== undefined) row[idx['gross_margin_nhso']] = calculateGM_(cost, t.nhsoAfterDiscount);
+      if (idx['updated_at'] !== undefined) row[idx['updated_at']] = new Date().toISOString();
+      migrated++;
+    });
+
+    range.setValues(values);
+    return { ok: true, migrated: migrated, policyVersion: TARIFF_POLICY_VERSION };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function compareProposalBasePrice_(changed, label, proposalValue, currentValue) {
@@ -1120,7 +1289,10 @@ function isProtectedPricingColumn_(header) {
     'ราคา OPD_Foreigner',
     'ราคา IPD_Foreigner',
     'government_opd_price',
+    'government_after_discount_est',
     'nhso_heart_price',
+    'nhso_after_discount_est',
+    'pricing_tariff_version',
     'gross_margin_opd',
     'gross_margin_ipd',
     'gross_margin_opd_foreigner',
