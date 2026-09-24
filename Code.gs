@@ -643,6 +643,15 @@ function savePricingSettingsUnlocked_(payload) {
     }
   }
 
+  if (rowNumber > 0 && payload.expected_updated_at) {
+    const currentValues = sheet.getRange(rowNumber, 1, 1, headers.length).getValues()[0];
+    const currentObj = rowToObject_(headers, currentValues);
+    const currentUpdatedAt = String(currentObj.updated_at || '');
+    if (currentUpdatedAt && currentUpdatedAt !== String(payload.expected_updated_at)) {
+      throw new Error('STALE_POLICY: Central Pricing Policy ถูกแก้ไขโดยผู้ใช้อื่น กรุณา Refresh ก่อนบันทึกใหม่');
+    }
+  }
+
   const now = new Date().toISOString();
   const rowObj = {
     settings_id: 'DEFAULT',
