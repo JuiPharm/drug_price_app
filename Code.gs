@@ -703,6 +703,12 @@ function submitPricingProposalUnlocked_(payload) {
   const current = findDatabaseRow_(rowId, itemCode);
   if (!current) throw new Error('Drug row not found in DataBase');
 
+  const dbCost = normalizeComparablePrice_(current.row['ราคาต้นทุน']);
+  const proposalCost = normalizeComparablePrice_(proposal.cost);
+  if (proposalCost !== '' && dbCost !== '' && proposalCost !== dbCost) {
+    throw new Error('STALE_COST: ราคาต้นทุนใน DataBase ไม่ตรงกับต้นทุนที่ใช้คำนวณ กรุณาบันทึก/Refresh ต้นทุนก่อนสร้างข้อเสนอ');
+  }
+
   const pending = findPendingProposal_(rowId, itemCode);
   if (pending) throw new Error('มีข้อเสนอราคาที่ยัง Pending อยู่แล้ว: ' + pending.proposal_id);
 
@@ -715,7 +721,7 @@ function submitPricingProposalUnlocked_(payload) {
     row_id: current.row.row_id || rowId,
     item_code: current.row.item_code || itemCode,
     drug_name: proposal.drug_name || current.row.FullName || current.row.GenercName || '',
-    cost: proposal.cost !== undefined ? proposal.cost : current.row['ราคาต้นทุน'],
+    cost: current.row['ราคาต้นทุน'] !== undefined ? current.row['ราคาต้นทุน'] : proposal.cost,
     current_opd: current.row['ราคา OPD'] || '',
     proposed_opd: requireNumber_(proposal.proposed_opd, 'proposed_opd'),
     current_ipd: current.row['ราคา IPD'] || '',
@@ -785,6 +791,7 @@ function approvePricingProposalUnlocked_(payload) {
 
   // Optimistic concurrency guard: do not apply a proposal created from stale prices.
   const staleFields = [];
+  compareProposalBasePrice_(staleFields, 'Cost', found.row.cost, db.row['ราคาต้นทุน']);
   compareProposalBasePrice_(staleFields, 'OPD', found.row.current_opd, db.row['ราคา OPD']);
   compareProposalBasePrice_(staleFields, 'IPD', found.row.current_ipd, db.row['ราคา IPD']);
   compareProposalBasePrice_(staleFields, 'Foreign OPD', found.row.current_opd_foreign, db.row['ราคา OPD_Foreigner']);
