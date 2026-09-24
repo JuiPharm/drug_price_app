@@ -24,7 +24,9 @@
 
   <nav class="tabs" aria-label="Main tabs">
     <button class="tab active" data-tab="databaseTab">รายการยา</button>
-    <button class="tab" data-tab="calculatorTab">คำนวณ Gross Margin</button>
+    <button class="tab" data-tab="calculatorTab">Pricing Calculator</button>
+    <button class="tab" data-tab="proposalsTab">ข้อเสนอราคา <span id="pendingBadge" class="tab-badge hidden">0</span></button>
+    <button class="tab" data-tab="historyTab">ประวัติราคา</button>
     <button class="tab" data-tab="settingsTab">ตั้งค่า</button>
   </nav>
 
@@ -143,6 +145,85 @@
         <div id="pricingTariffGrid" class="tariff-grid"></div>
         <div id="pricingFloorTrace" class="floor-trace"></div>
       </article>
+
+      <article class="panel-card proposal-submit-card">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Controlled workflow</p>
+            <h2>สร้างข้อเสนอราคา</h2>
+            <p id="proposalContext" class="hint">เลือกยาจากหน้า “รายการยา” แล้วกด “เสนอปรับราคา” เพื่อเชื่อมกับรายการในฐานข้อมูล</p>
+          </div>
+          <span id="proposalContextBadge" class="policy-badge">ยังไม่ได้เลือกยา</span>
+        </div>
+        <div class="pricing-form-grid">
+          <label class="pricing-field">
+            <span>ผู้เสนอราคา</span>
+            <input id="proposalOperator" type="text" placeholder="ชื่อผู้เสนอ / ผู้ดำเนินการ" />
+          </label>
+          <label class="pricing-field">
+            <span>หมายเหตุ / เหตุผลเพิ่มเติม</span>
+            <input id="proposalNotes" type="text" placeholder="เช่น ทดแทนยาเดิม, ต้นทุนเพิ่ม, ราคาตลาด..." />
+          </label>
+        </div>
+        <div class="workflow-actions">
+          <button id="clearProposalContextBtn" class="btn secondary" type="button">ยกเลิกการเลือกยา</button>
+          <button id="submitProposalBtn" class="btn primary" type="button" disabled>ส่งข้อเสนอเพื่ออนุมัติ</button>
+        </div>
+      </article>
+    </section>
+
+    <section id="proposalsTab" class="tab-panel">
+      <article class="panel-card workflow-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Pricing approval</p>
+            <h2>ข้อเสนอปรับราคา</h2>
+            <p class="hint">อนุมัติแล้วระบบจะอัปเดตราคาใน DataBase และสร้าง Audit History โดยอัตโนมัติ</p>
+          </div>
+          <button id="refreshProposalsBtn" class="btn secondary" type="button">Refresh</button>
+        </div>
+        <div class="workflow-toolbar">
+          <label class="pricing-field compact-field">
+            <span>สถานะ</span>
+            <select id="proposalStatusFilter">
+              <option value="PENDING">Pending</option>
+              <option value="ALL">ทั้งหมด</option>
+              <option value="APPROVED">Approved</option>
+              <option value="REJECTED">Rejected</option>
+              <option value="CANCELLED">Cancelled</option>
+            </select>
+          </label>
+          <div class="workflow-summary">
+            <span>รายการที่แสดง</span>
+            <strong id="proposalCount">0</strong>
+          </div>
+        </div>
+        <div id="proposalList" class="workflow-list"></div>
+      </article>
+    </section>
+
+    <section id="historyTab" class="tab-panel">
+      <article class="panel-card workflow-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Audit trail</p>
+            <h2>Pricing History</h2>
+            <p class="hint">บันทึกการเสนอ อนุมัติ ปฏิเสธ การเปลี่ยน Policy และราคาก่อน/หลัง</p>
+          </div>
+          <button id="refreshHistoryBtn" class="btn secondary" type="button">Refresh</button>
+        </div>
+        <div class="workflow-toolbar">
+          <label class="pricing-field compact-field">
+            <span>กรองตามรหัสยา</span>
+            <input id="historyItemFilter" type="search" placeholder="item_code (เว้นว่าง = ทั้งหมด)" />
+          </label>
+          <div class="workflow-summary">
+            <span>ประวัติที่แสดง</span>
+            <strong id="historyCount">0</strong>
+          </div>
+        </div>
+        <div id="historyList" class="workflow-list"></div>
+      </article>
     </section>
 
     <section id="settingsTab" class="tab-panel">
@@ -155,6 +236,21 @@
           <span class="policy-badge">แก้ไขได้โดยไม่ต้องแก้ Code</span>
         </div>
         <p class="hint">ตัวแปรที่ใช้ได้: OPD, IPD, COST, GM &nbsp;|&nbsp; ฟังก์ชัน: MAX(), MIN(), ROUND(), CEIL(), FLOOR(), ABS()</p>
+        <div class="central-policy-bar">
+          <div>
+            <span>Central policy status</span>
+            <strong id="centralPolicyStatus">Local fallback</strong>
+            <small id="centralPolicyMeta">รอเชื่อมต่อ backend</small>
+          </div>
+          <label class="pricing-field compact-field">
+            <span>ผู้แก้ไข Policy</span>
+            <input id="settingsOperator" type="text" placeholder="ชื่อผู้ดำเนินการ" />
+          </label>
+          <label class="pricing-field compact-field">
+            <span>Approver PIN</span>
+            <input id="settingsApproverPin" type="password" autocomplete="off" placeholder="PIN สำหรับเปลี่ยน Central Policy" />
+          </label>
+        </div>
 
         <div class="formula-grid">
           <label class="pricing-field"><span>IPD formula</span><input id="formulaIpd" value="OPD*1.20" /></label>
@@ -216,14 +312,15 @@
 
       <div class="modal-actions top-actions">
         <button id="autoPriceBtn" type="button" class="btn secondary">คำนวณราคาอัตโนมัติ</button>
-        <button id="saveBtn" type="button" class="btn primary">บันทึกลง Google Sheet</button>
+        <button id="proposePriceBtn" type="button" class="btn secondary highlight">เสนอปรับราคา</button>
+        <button id="saveBtn" type="button" class="btn primary">บันทึกข้อมูลทั่วไป</button>
       </div>
 
       <section id="detailGrid" class="detail-grid"></section>
 
       <footer class="modal-actions">
         <button type="button" id="closeModalBtn" class="btn secondary">ปิด</button>
-        <button type="button" id="saveBtnBottom" class="btn primary">บันทึก</button>
+        <button type="button" id="saveBtnBottom" class="btn primary">บันทึกข้อมูลทั่วไป</button>
       </footer>
     </form>
   </dialog>

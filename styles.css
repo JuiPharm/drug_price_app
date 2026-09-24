@@ -988,3 +988,213 @@ input[readonly] { background: #f1f5f9; color: #475569; }
   .panel-heading { flex-direction: column; }
   .policy-badge { white-space: normal; }
 }
+
+
+/* Pricing workflow v3 */
+.tab-badge {
+  display: inline-flex;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  margin-left: .35rem;
+  padding: 0 .35rem;
+  border-radius: 999px;
+  background: #c5162e;
+  color: #fff;
+  font-size: .7rem;
+  font-weight: 900;
+}
+.proposal-submit-card,
+.workflow-panel {
+  margin-top: 1rem;
+}
+.workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+.workflow-toolbar,
+.central-policy-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin: .85rem 0 1rem;
+  padding: .85rem;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 14px;
+}
+.central-policy-bar > div {
+  display: grid;
+  gap: .15rem;
+}
+.central-policy-bar span,
+.central-policy-bar small {
+  color: var(--muted);
+  font-size: .78rem;
+}
+.central-policy-bar strong {
+  color: #0f172a;
+}
+.compact-field {
+  min-width: 220px;
+  max-width: 360px;
+}
+.workflow-summary {
+  display: grid;
+  gap: .1rem;
+  text-align: right;
+}
+.workflow-summary span {
+  color: var(--muted);
+  font-size: .78rem;
+}
+.workflow-summary strong {
+  font-size: 1.35rem;
+}
+.workflow-list {
+  display: grid;
+  gap: .85rem;
+}
+.workflow-card,
+.history-card {
+  border: 1px solid #dbe4ee;
+  background: #fff;
+  border-radius: 16px;
+  padding: 1rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
+}
+.workflow-card-head {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.workflow-card-head h3 {
+  margin: .55rem 0 .2rem;
+}
+.workflow-card-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: .83rem;
+}
+.proposal-id {
+  color: #64748b;
+  font-size: .82rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: .2rem .55rem;
+  margin-left: .3rem;
+  border-radius: 999px;
+  font-size: .7rem;
+  font-weight: 900;
+  background: #f1f5f9;
+  color: #475569;
+}
+.status-pending { background: #fff7d6; color: #8a6200; }
+.status-approved { background: #e8f7ef; color: #067647; }
+.status-rejected { background: #feecec; color: #b42318; }
+.status-cancelled { background: #f1f5f9; color: #64748b; }
+.status-active { background: #e8f1ff; color: #1d4ed8; }
+.proposal-price-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .65rem;
+  margin-top: 1rem;
+}
+.price-delta {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: .7rem;
+  background: #f8fafc;
+}
+.price-delta span,
+.price-delta small {
+  display: block;
+  color: var(--muted);
+  font-size: .76rem;
+}
+.price-delta strong {
+  display: block;
+  font-size: 1.05rem;
+  margin: .15rem 0;
+}
+.price-delta em {
+  font-style: normal;
+  font-size: .75rem;
+  font-weight: 800;
+  color: #475569;
+}
+.proposal-meta,
+.history-price-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .55rem 1rem;
+  margin-top: .8rem;
+  font-size: .82rem;
+  color: #475569;
+}
+.proposal-note {
+  margin-top: .75rem;
+  padding: .65rem .75rem;
+  border-radius: 10px;
+  background: #f8fafc;
+  border-left: 3px solid #94a3b8;
+  color: #475569;
+  font-size: .84rem;
+}
+.review-note {
+  border-left-color: #2563eb;
+  background: #eff6ff;
+}
+.danger-outline {
+  border-color: #f2b8b5 !important;
+  color: #b42318 !important;
+  background: #fff !important;
+}
+.approval-form {
+  display: grid;
+  gap: .45rem;
+  text-align: left;
+}
+.approval-form label {
+  display: grid;
+  gap: .15rem;
+  color: #475569;
+  font-size: .8rem;
+}
+.approval-form .swal2-input {
+  margin: .15rem 0 .35rem !important;
+  width: 100% !important;
+}
+.field.readonly.important input {
+  background: #f8fafc;
+  cursor: not-allowed;
+}
+.field.readonly.important span::after {
+  content: " · Approval workflow";
+  color: #b42318;
+  font-size: .68rem;
+  font-weight: 800;
+}
+
+@media (max-width: 900px) {
+  .proposal-price-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 620px) {
+  .proposal-price-grid { grid-template-columns: 1fr; }
+  .workflow-card-head { flex-direction: column; }
+  .workflow-actions { justify-content: stretch; }
+  .workflow-actions .btn { flex: 1 1 auto; }
+  .central-policy-bar { align-items: stretch; }
+  .compact-field { max-width: none; width: 100%; }
+}

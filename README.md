@@ -232,3 +232,143 @@ https://USERNAME.github.io/REPOSITORY_NAME/
 7. กลับหน้าเว็บแล้วกด **Refresh**
 
 > คอลัมน์ สกย. เดิมไม่ถูกเปลี่ยนความหมายหรือเขียนทับด้วย Government pricing เพื่อรักษา compatibility กับข้อมูลเดิม
+
+
+---
+
+# Pricing Management Workflow v3
+
+เวอร์ชันนี้ยกระดับระบบจากเครื่องคำนวณราคาเป็น **Drug Pricing Management System**
+โดยแยก Current Price ออกจาก Proposed Price และมี Approval / Audit Trail
+
+## Architecture
+
+```text
+DataBase (ราคาที่ใช้งานจริง)
+        ↑
+        │ Apply only after approval
+        │
+Pricing_Proposals
+        ↑
+        │ Submit
+        │
+Pricing Calculator ← Central Pricing_Settings
+        │
+        └──────────────→ Pricing_History
+```
+
+Google Spreadsheet จะมีชีตเพิ่มอัตโนมัติเมื่อรัน `setup()`:
+
+- `Pricing_Settings` — Central Pricing Policy สำหรับทุก user
+- `Pricing_Proposals` — ข้อเสนอราคาและสถานะ Pending / Approved / Rejected / Cancelled
+- `Pricing_History` — Audit trail รวมราคาก่อน/หลัง, ผู้ดำเนินการ, เวลา และ policy snapshot
+
+## Production setup ที่ต้องทำหลัง Update Code.gs
+
+### 1. Update Apps Script
+
+1. เปิด Google Sheet > Extensions > Apps Script
+2. Copy `Code.gs` ล่าสุดจาก repository ไปแทนไฟล์เดิม
+3. Save
+4. Run `setup()` หนึ่งครั้ง
+5. อนุญาตสิทธิ์ Google หากถูกถาม
+
+หลัง Run สำเร็จให้ตรวจว่ามี:
+
+- `DataBase`
+- `Pricing_Settings`
+- `Pricing_Proposals`
+- `Pricing_History`
+
+### 2. ตั้ง Approver PIN
+
+Approver PIN **ห้ามเก็บใน GitHub หรือ config.js**
+
+ใน Apps Script:
+
+1. เปิด **Project Settings**
+2. ไปที่ **Script Properties**
+3. เพิ่ม Property:
+   - Property: `PRICING_APPROVER_PIN`
+   - Value: PIN ที่กำหนดโดยผู้ดูแลระบบ
+4. Save
+
+PIN นี้ใช้สำหรับ:
+- Approve proposal
+- Reject proposal
+- เปลี่ยน Central Pricing Policy
+- Reset Pricing Policy
+
+### 3. Redeploy Apps Script
+
+1. Deploy > Manage deployments
+2. Edit deployment ปัจจุบัน
+3. Version > **New version**
+4. Deploy
+5. URL `/exec` เดิมสามารถใช้ต่อได้ถ้าแก้ deployment เดิม
+
+## Workflow การตั้งราคา
+
+1. เปิด **รายการยา**
+2. เลือกรายการยา
+3. กด **เสนอปรับราคา**
+4. ระบบส่ง Cost / Current OPD / Drug context ไป Pricing Calculator
+5. เลือก:
+   - Historical Suggested GM
+   - Target GM
+   - กำหนด OPD Price
+6. ตรวจ OPD / IPD / Foreign / Government / NHSO
+7. ระบุผู้เสนอและหมายเหตุ
+8. กด **ส่งข้อเสนอเพื่ออนุมัติ**
+9. Proposal มีสถานะ `PENDING`
+10. ผู้อนุมัติเปิดแท็บ **ข้อเสนอราคา**
+11. กด **Approve & Apply** และใส่ Approver PIN
+12. Backend:
+    - ตรวจ PIN
+    - อัปเดต Current Price ใน `DataBase`
+    - เปลี่ยน proposal เป็น `APPROVED`
+    - บันทึก Before / After ลง `Pricing_History`
+
+ถ้า Reject จะไม่มีการแก้ราคาใน DataBase
+
+## Server-side protection
+
+สำหรับรายการยาที่มีอยู่แล้ว ฟิลด์ต่อไปนี้ไม่สามารถถูกแก้โดย `save` หรือ Excel update ปกติ:
+
+- ราคา OPD
+- ราคา IPD
+- ราคา OPD_Foreigner
+- ราคา IPD_Foreigner
+- government_opd_price
+- nhso_heart_price
+- Gross margin ที่เกี่ยวข้อง
+
+การเปลี่ยนราคาต้องผ่าน `approve_pricing_proposal` เท่านั้น
+
+ดังนั้นการแก้ DOM, การส่ง API save ปกติ หรือการนำเข้า Excel จะไม่ข้าม Pricing Approval Workflow ได้
+
+## Central Pricing Policy
+
+Pricing Settings ถูกเก็บใน `Pricing_Settings` และโหลดให้ user ทุกคนใช้ policy เดียวกัน
+
+Browser localStorage ใช้เป็น **fallback/cache เท่านั้น** เมื่อ backend ไม่พร้อม
+
+Central Policy ประกอบด้วย:
+
+- IPD formula
+- Foreign OPD/IPD formula
+- Government formula
+- NHSO formula
+- Rounding policy
+- OPD floor policy
+- Historical GM anchors
+
+ทุกครั้งที่แก้ Central Policy จะสร้าง record ใน `Pricing_History`
+
+## Security boundary
+
+ระบบปัจจุบันใช้:
+- APP_TOKEN สำหรับ API access (ถ้ากำหนด)
+- Approver PIN ที่เก็บใน Apps Script Script Properties สำหรับ Pricing authorization
+
+สำหรับ environment ที่ต้องการ user identity/role แบบรายบุคคล แนะนำย้าย authentication ไป Supabase Auth / Google Workspace identity ใน phase ถัดไป โดย Pricing Workflow และ Audit schema รุ่นนี้สามารถนำไปใช้ต่อได้

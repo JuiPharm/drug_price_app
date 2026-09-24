@@ -8,6 +8,7 @@
   const PAGE_SIZE = Number(CONFIG.PAGE_SIZE || 20);
   const PricingEngine = window.PricingEngine;
   const PRICING_SETTINGS_KEY = 'drug-price-app-pricing-v2';
+  const OPERATOR_NAME_KEY = 'drug-price-app-operator';
   let pricingSettings = PricingEngine ? PricingEngine.cloneDefaultSettings() : null;
 
   const F = {
@@ -56,6 +57,8 @@
     'gross_margin_ipd',
     'gross_margin_sky_opd',
     'gross_margin_sky_ipd',
+    'gross_margin_gov',
+    'gross_margin_nhso',
     F.rowId,
     F.updatedAt,
     F.createdAt
@@ -78,6 +81,12 @@
   ]);
 
   const EDITABLE_EXCLUDE = new Set([F.rowId, F.updatedAt, F.createdAt, F.skyOpdDisc, F.skyIpdDisc, F.skyOpdAfterCost, F.skyIpdAfterCost]);
+  const PRICE_CONTROLLED_FIELDS = new Set([
+    F.opd, F.ipd, F.opdForeign, F.ipdForeign, F.gov, F.nhso,
+    'gross_margin_opd', 'gross_margin_ipd',
+    'gross_margin_opd_foreigner', 'gross_margin_ipd_foreigner',
+    'gross_margin_gov', 'gross_margin_nhso'
+  ]);
 
   const state = {
     headers: [],
@@ -88,7 +97,14 @@
     isNew: false,
     saving: false,
     lastPayload: null,
-    pollHandle: null
+    pollHandle: null,
+    original: null,
+    proposalDrug: null,
+    lastPricingResult: null,
+    proposals: [],
+    history: [],
+    centralPolicyLoaded: false,
+    centralPolicyUpdatedAt: ''
   };
 
   const excelState = {
@@ -157,6 +173,7 @@
     saveBtn: byId('saveBtn'),
     saveBtnBottom: byId('saveBtnBottom'),
     autoPriceBtn: byId('autoPriceBtn'),
+    proposePriceBtn: byId('proposePriceBtn'),
     toast: byId('toast'),
     pricingCost: byId('pricingCost'),
     pricingMode: byId('pricingMode'),
@@ -176,6 +193,21 @@
     pricingAlert: byId('pricingAlert'),
     pricingTariffGrid: byId('pricingTariffGrid'),
     pricingFloorTrace: byId('pricingFloorTrace'),
+    proposalContext: byId('proposalContext'),
+    proposalContextBadge: byId('proposalContextBadge'),
+    proposalOperator: byId('proposalOperator'),
+    proposalNotes: byId('proposalNotes'),
+    submitProposalBtn: byId('submitProposalBtn'),
+    clearProposalContextBtn: byId('clearProposalContextBtn'),
+    pendingBadge: byId('pendingBadge'),
+    proposalStatusFilter: byId('proposalStatusFilter'),
+    refreshProposalsBtn: byId('refreshProposalsBtn'),
+    proposalCount: byId('proposalCount'),
+    proposalList: byId('proposalList'),
+    refreshHistoryBtn: byId('refreshHistoryBtn'),
+    historyItemFilter: byId('historyItemFilter'),
+    historyCount: byId('historyCount'),
+    historyList: byId('historyList'),
     formulaIpd: byId('formulaIpd'),
     formulaForeignOpd: byId('formulaForeignOpd'),
     formulaForeignIpd: byId('formulaForeignIpd'),
@@ -186,6 +218,10 @@
     applyGovFloor: byId('applyGovFloor'),
     applyNhsoFloor: byId('applyNhsoFloor'),
     pricingAnchors: byId('pricingAnchors'),
+    centralPolicyStatus: byId('centralPolicyStatus'),
+    centralPolicyMeta: byId('centralPolicyMeta'),
+    settingsOperator: byId('settingsOperator'),
+    settingsApproverPin: byId('settingsApproverPin'),
     formulaError: byId('formulaError'),
     savePricingSettingsBtn: byId('savePricingSettingsBtn'),
     resetPricingSettingsBtn: byId('resetPricingSettingsBtn'),
@@ -236,8 +272,10 @@
     loadPricingSettings();
     renderPricingSettings();
     bindEvents();
+    restoreOperatorName();
     syncPricingMode();
     calculatePricingSimulation();
+    renderProposalContext();
 
     if (!isConfigured()) {
       setStatus('error', 'ยังไม่ได้ตั้งค่า Apps Script URL', 'กรุณาแก้ไฟล์ config.js');
@@ -246,7 +284,13 @@
     }
 
     loadData({ manual: true });
-    state.pollHandle = window.setInterval(() => loadData({ silent: true }), POLL_INTERVAL_MS);
+    loadCentralPricingSettings();
+    loadPricingProposals();
+    loadPricingHistory();
+    state.pollHandle = window.setInterval(() => {
+      loadData({ silent: true });
+      loadPricingProposals({ silent: true });
+    }, POLL_INTERVAL_MS);
   }
 
   function bindEvents() {
@@ -273,6 +317,7 @@
     el.saveBtn.addEventListener('click', saveCurrent);
     el.saveBtnBottom.addEventListener('click', saveCurrent);
     el.autoPriceBtn.addEventListener('click', autoFillPrices);
+    if (el.proposePriceBtn) el.proposePriceBtn.addEventListener('click', beginProposalFromCurrent);
 
     if (el.pricingCalcBtn) el.pricingCalcBtn.addEventListener('click', calculatePricingSimulation);
     if (el.pricingMode) el.pricingMode.addEventListener('change', () => { syncPricingMode(); calculatePricingSimulation(); });
@@ -281,6 +326,16 @@
       .forEach((node) => node.addEventListener('input', calculatePricingSimulation));
     if (el.savePricingSettingsBtn) el.savePricingSettingsBtn.addEventListener('click', savePricingSettingsFromUi);
     if (el.resetPricingSettingsBtn) el.resetPricingSettingsBtn.addEventListener('click', resetPricingSettings);
+    if (el.submitProposalBtn) el.submitProposalBtn.addEventListener('click', submitCurrentProposal);
+    if (el.clearProposalContextBtn) el.clearProposalContextBtn.addEventListener('click', clearProposalContext);
+    if (el.refreshProposalsBtn) el.refreshProposalsBtn.addEventListener('click', () => loadPricingProposals());
+    if (el.proposalStatusFilter) el.proposalStatusFilter.addEventListener('change', () => loadPricingProposals());
+    if (el.proposalList) el.proposalList.addEventListener('click', handleProposalListAction);
+    if (el.refreshHistoryBtn) el.refreshHistoryBtn.addEventListener('click', () => loadPricingHistory());
+    if (el.historyItemFilter) el.historyItemFilter.addEventListener('input', debounce(() => loadPricingHistory({ silent: true }), 300));
+    [el.proposalOperator, el.settingsOperator].filter(Boolean).forEach((node) => {
+      node.addEventListener('input', () => persistOperatorName(node.value));
+    });
     el.pingBtn.addEventListener('click', ping);
     el.copyDiagBtn.addEventListener('click', copyDiagnostics);
 
@@ -318,6 +373,8 @@
   function switchTab(tabId) {
     document.querySelectorAll('.tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tabId));
     document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.toggle('active', panel.id === tabId));
+    if (tabId === 'proposalsTab') loadPricingProposals({ silent: true });
+    if (tabId === 'historyTab') loadPricingHistory({ silent: true });
     updateFloatingBackButton();
   }
 
@@ -533,6 +590,7 @@
 
   function openEditModal(row) {
     state.isNew = false;
+    state.original = { ...row };
     state.current = { ...row };
     openModal('รายละเอียด / แก้ไข', row);
   }
@@ -543,6 +601,7 @@
     const headers = ensureHeadersForForm();
     headers.forEach((h) => { blank[h] = ''; });
     blank[F.rowId] = '';
+    state.original = null;
     state.current = blank;
     openModal('เพิ่มรายการใหม่', blank);
   }
@@ -592,7 +651,7 @@
     el.detailGrid.innerHTML = headers.map((header) => {
       const value = Object.prototype.hasOwnProperty.call(computed, header) ? computed[header] : state.current[header];
       const displayValue = value === undefined || value === null || value === '' ? '' : String(value);
-      const isReadOnly = EDITABLE_EXCLUDE.has(header);
+      const isReadOnly = EDITABLE_EXCLUDE.has(header) || (!state.isNew && PRICE_CONTROLLED_FIELDS.has(header));
       const isNumber = isNumericField(header);
       const classes = [isReadOnly ? 'readonly' : '', isImportantField(header) ? 'important' : ''].join(' ');
 
@@ -632,6 +691,10 @@
 
   function autoFillPrices() {
     if (!state.current || !PricingEngine || !pricingSettings) return;
+    if (!state.isNew) {
+      beginProposalFromCurrent();
+      return;
+    }
 
     const cost = toNumber(state.current[F.cost]) ?? 0;
     const skyOpd = toNumber(state.current[F.skyOpd]);
@@ -717,6 +780,11 @@
     refreshComputedFields();
 
     const merged = { ...(state.current || {}), ...computeFields(state.current || {}) };
+    if (!state.isNew && state.original) {
+      PRICE_CONTROLLED_FIELDS.forEach((field) => {
+        if (Object.prototype.hasOwnProperty.call(state.original, field)) merged[field] = state.original[field];
+      });
+    }
     if (hasNegativeAfterDiscount(merged)) {
       const ok = window.confirm('พบราคาหลัง Discount ต่ำกว่าทุน ต้องการบันทึกต่อหรือไม่?');
       if (!ok) return;
@@ -729,7 +797,7 @@
 
     try {
       await postAction(state.isNew ? 'add' : 'save', merged);
-      showToast('บันทึกแล้ว กำลังโหลดข้อมูลล่าสุด...');
+      showToast(state.isNew ? 'เพิ่มรายการยาแล้ว' : 'บันทึกข้อมูลทั่วไปแล้ว (ราคาใช้ Approval Workflow)');
       await delay(1200);
       await loadData({ manual: true });
       el.dialog.close();
@@ -760,6 +828,29 @@
       }
     } catch (_err) {
       pricingSettings = PricingEngine.cloneDefaultSettings();
+    }
+  }
+
+  async function loadCentralPricingSettings() {
+    if (!isConfigured() || !PricingEngine) return;
+    try {
+      const payload = await jsonp('pricing_settings', { token: APP_TOKEN });
+      if (!payload || payload.ok === false || !payload.settings) throw new Error(payload?.error || 'ไม่พบ Central Pricing Settings');
+      pricingSettings = Object.assign(PricingEngine.cloneDefaultSettings(), payload.settings);
+      pricingSettings.formulas = Object.assign(PricingEngine.cloneDefaultSettings().formulas, payload.settings.formulas || {});
+      localStorage.setItem(PRICING_SETTINGS_KEY, JSON.stringify(pricingSettings));
+      state.centralPolicyLoaded = true;
+      state.centralPolicyUpdatedAt = payload.updated_at || '';
+      renderPricingSettings();
+      calculatePricingSimulation();
+      if (el.centralPolicyStatus) el.centralPolicyStatus.textContent = 'Central policy active';
+      if (el.centralPolicyMeta) el.centralPolicyMeta.textContent =
+        'อัปเดต ' + (payload.updated_at ? new Date(payload.updated_at).toLocaleString('th-TH') : '-') +
+        ' · โดย ' + (payload.updated_by || '-');
+    } catch (err) {
+      state.centralPolicyLoaded = false;
+      if (el.centralPolicyStatus) el.centralPolicyStatus.textContent = 'Local fallback';
+      if (el.centralPolicyMeta) el.centralPolicyMeta.textContent = 'Backend ยังไม่พร้อม: ' + err.message;
     }
   }
 
@@ -800,6 +891,7 @@
     if (el.pricingError) el.pricingError.classList.add('hidden');
     try {
       const result = PricingEngine.calculate(getPricingInput(), pricingSettings);
+      state.lastPricingResult = result;
       renderPricingSimulation(result);
     } catch (err) {
       if (el.pricingError) {
@@ -846,32 +938,39 @@
     }
   }
 
-  function savePricingSettingsFromUi() {
+  async function savePricingSettingsFromUi() {
     if (!PricingEngine) return;
     if (el.formulaError) el.formulaError.classList.add('hidden');
     try {
-      const next = PricingEngine.cloneDefaultSettings();
-      next.formulas.ipd = el.formulaIpd.value.trim();
-      next.formulas.foreignOpd = el.formulaForeignOpd.value.trim();
-      next.formulas.foreignIpd = el.formulaForeignIpd.value.trim();
-      next.formulas.govPreFloor = el.formulaGov.value.trim();
-      next.formulas.nhsoPreFloor = el.formulaNhso.value.trim();
-      next.roundingStep = Number(el.pricingRoundingStep.value);
-      next.roundingMode = el.pricingRoundingMode.value;
-      next.applyGovFloor = !!el.applyGovFloor.checked;
-      next.applyNhsoFloor = !!el.applyNhsoFloor.checked;
-      next.anchors = JSON.parse(el.pricingAnchors.value);
+      const next = buildPricingSettingsFromUi();
+      const operator = getOperatorName();
+      if (!operator) throw new Error('กรุณาระบุชื่อผู้แก้ไข Policy');
 
-      if (!(next.roundingStep > 0)) throw new Error('Rounding step ต้องมากกว่า 0');
-      const vars = { OPD: 100, IPD: 120, COST: 50, GM: 50 };
-      Object.values(next.formulas).forEach((formula) => PricingEngine.evaluateFormula(formula, vars));
-      PricingEngine.historicalGM(500, next.anchors);
+      const previous = pricingSettings;
+      if (isConfigured() && !(el.settingsApproverPin && el.settingsApproverPin.value)) {
+        throw new Error('กรุณาระบุ Approver PIN สำหรับเปลี่ยน Central Policy');
+      }
+      if (isConfigured()) {
+        const savedPolicy = await postAction('save_pricing_settings', {
+          settings: next,
+          updated_by: operator,
+          approver_pin: el.settingsApproverPin ? el.settingsApproverPin.value : '',
+          previous_settings: previous,
+          expected_updated_at: state.centralPolicyUpdatedAt || ''
+        });
+        state.centralPolicyUpdatedAt = savedPolicy.updated_at || state.centralPolicyUpdatedAt;
+      }
 
       pricingSettings = next;
       localStorage.setItem(PRICING_SETTINGS_KEY, JSON.stringify(pricingSettings));
+      state.centralPolicyLoaded = isConfigured();
       renderPricingSettings();
       calculatePricingSimulation();
-      showToast('บันทึก Pricing Settings แล้ว');
+      if (el.centralPolicyStatus) el.centralPolicyStatus.textContent = isConfigured() ? 'Central policy active' : 'Local only';
+      if (el.centralPolicyMeta) el.centralPolicyMeta.textContent = 'แก้ไขโดย ' + operator + ' · ' + new Date().toLocaleString('th-TH');
+      if (el.settingsApproverPin) el.settingsApproverPin.value = '';
+      showToast(isConfigured() ? 'บันทึก Central Pricing Policy แล้ว' : 'บันทึก Local Pricing Settings แล้ว');
+      if (isConfigured()) loadPricingHistory({ silent: true });
     } catch (err) {
       if (el.formulaError) {
         el.formulaError.textContent = 'บันทึกไม่ได้: ' + err.message;
@@ -880,14 +979,409 @@
     }
   }
 
-  function resetPricingSettings() {
+  function buildPricingSettingsFromUi() {
+    const next = PricingEngine.cloneDefaultSettings();
+    next.formulas.ipd = el.formulaIpd.value.trim();
+    next.formulas.foreignOpd = el.formulaForeignOpd.value.trim();
+    next.formulas.foreignIpd = el.formulaForeignIpd.value.trim();
+    next.formulas.govPreFloor = el.formulaGov.value.trim();
+    next.formulas.nhsoPreFloor = el.formulaNhso.value.trim();
+    next.roundingStep = Number(el.pricingRoundingStep.value);
+    next.roundingMode = el.pricingRoundingMode.value;
+    next.applyGovFloor = !!el.applyGovFloor.checked;
+    next.applyNhsoFloor = !!el.applyNhsoFloor.checked;
+    next.anchors = JSON.parse(el.pricingAnchors.value);
+
+    if (!(next.roundingStep > 0)) throw new Error('Rounding step ต้องมากกว่า 0');
+    const vars = { OPD: 100, IPD: 120, COST: 50, GM: 50 };
+    Object.values(next.formulas).forEach((formula) => PricingEngine.evaluateFormula(formula, vars));
+    PricingEngine.historicalGM(500, next.anchors);
+    return next;
+  }
+
+  async function resetPricingSettings() {
     if (!PricingEngine) return;
-    if (!window.confirm('คืนค่า Pricing Policy เป็นค่าเริ่มต้นหรือไม่?')) return;
-    pricingSettings = PricingEngine.cloneDefaultSettings();
-    localStorage.setItem(PRICING_SETTINGS_KEY, JSON.stringify(pricingSettings));
-    renderPricingSettings();
+    if (!window.confirm('คืนค่า Pricing Policy เป็นค่าเริ่มต้นและบันทึกเป็น Central Policy หรือไม่?')) return;
+    const operator = getOperatorName();
+    if (!operator) {
+      showToast('กรุณาระบุชื่อผู้ดำเนินการก่อน', 'error');
+      return;
+    }
+    const defaults = PricingEngine.cloneDefaultSettings();
+    try {
+      if (isConfigured() && !(el.settingsApproverPin && el.settingsApproverPin.value)) {
+        throw new Error('กรุณาระบุ Approver PIN สำหรับ Reset Central Policy');
+      }
+      if (isConfigured()) {
+        const resetPolicy = await postAction('save_pricing_settings', {
+          settings: defaults,
+          updated_by: operator,
+          approver_pin: el.settingsApproverPin ? el.settingsApproverPin.value : '',
+          previous_settings: pricingSettings,
+          expected_updated_at: state.centralPolicyUpdatedAt || '',
+          note: 'Reset to default policy'
+        });
+        state.centralPolicyUpdatedAt = resetPolicy.updated_at || state.centralPolicyUpdatedAt;
+      }
+      pricingSettings = defaults;
+      localStorage.setItem(PRICING_SETTINGS_KEY, JSON.stringify(pricingSettings));
+      renderPricingSettings();
+      calculatePricingSimulation();
+      showToast('คืนค่า Pricing Policy แล้ว');
+      if (isConfigured()) loadPricingHistory({ silent: true });
+    } catch (err) {
+      showToast('Reset ไม่สำเร็จ: ' + err.message, 'error');
+    }
+  }
+
+  function restoreOperatorName() {
+    const name = localStorage.getItem(OPERATOR_NAME_KEY) || '';
+    if (el.proposalOperator) el.proposalOperator.value = name;
+    if (el.settingsOperator) el.settingsOperator.value = name;
+  }
+
+  function persistOperatorName(value) {
+    const name = String(value || '').trim();
+    if (name) localStorage.setItem(OPERATOR_NAME_KEY, name);
+    if (el.proposalOperator && document.activeElement !== el.proposalOperator) el.proposalOperator.value = name;
+    if (el.settingsOperator && document.activeElement !== el.settingsOperator) el.settingsOperator.value = name;
+  }
+
+  function getOperatorName() {
+    const name = String(
+      (el.proposalOperator && el.proposalOperator.value) ||
+      (el.settingsOperator && el.settingsOperator.value) ||
+      localStorage.getItem(OPERATOR_NAME_KEY) ||
+      ''
+    ).trim();
+    if (name) persistOperatorName(name);
+    return name;
+  }
+
+  function beginProposalFromCurrent() {
+    if (!state.current || state.isNew) {
+      showToast('กรุณาบันทึกรายการยาใหม่ก่อนสร้างข้อเสนอราคา', 'error');
+      return;
+    }
+    state.proposalDrug = { ...state.current };
+    if (el.pricingCost) el.pricingCost.value = toNumber(state.current[F.cost]) ?? '';
+    if (el.pricingOldPrice) el.pricingOldPrice.value = toNumber(state.current[F.opd]) ?? '';
+    if (el.pricingReason) el.pricingReason.value = 'adjustment';
+    if (el.pricingMode) el.pricingMode.value = 'historical';
+    if (el.pricingDesiredPrice) el.pricingDesiredPrice.value = toNumber(state.current[F.opd]) ?? '';
+    if (el.dialog && el.dialog.open) el.dialog.close();
+    syncPricingMode();
     calculatePricingSimulation();
-    showToast('คืนค่า Pricing Settings แล้ว');
+    renderProposalContext();
+    switchTab('calculatorTab');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function clearProposalContext() {
+    state.proposalDrug = null;
+    if (el.proposalNotes) el.proposalNotes.value = '';
+    renderProposalContext();
+  }
+
+  function renderProposalContext() {
+    if (!el.proposalContext || !el.proposalContextBadge || !el.submitProposalBtn) return;
+    const row = state.proposalDrug;
+    if (!row) {
+      el.proposalContext.textContent = 'เลือกยาจากหน้า “รายการยา” แล้วกด “เสนอปรับราคา” เพื่อเชื่อมกับรายการในฐานข้อมูล';
+      el.proposalContextBadge.textContent = 'ยังไม่ได้เลือกยา';
+      el.submitProposalBtn.disabled = true;
+      return;
+    }
+    const name = safe(row[F.fullName]) || safe(row[F.generic]) || '-';
+    const code = safe(row[F.itemCode]) || '-';
+    el.proposalContext.textContent =
+      name + ' · Cost ' + fmtMoney(row[F.cost]) + ' · OPD ปัจจุบัน ' + fmtMoney(row[F.opd]) + ' · IPD ปัจจุบัน ' + fmtMoney(row[F.ipd]);
+    el.proposalContextBadge.textContent = code;
+    el.submitProposalBtn.disabled = false;
+  }
+
+  async function submitCurrentProposal() {
+    if (!state.proposalDrug || !state.lastPricingResult) {
+      showToast('กรุณาเลือกยาและคำนวณราคาใหม่ก่อน', 'error');
+      return;
+    }
+    const operator = getOperatorName();
+    if (!operator) {
+      showToast('กรุณาระบุชื่อผู้เสนอราคา', 'error');
+      return;
+    }
+    const r = state.lastPricingResult;
+    const row = state.proposalDrug;
+    const payload = {
+      row_id: row[F.rowId] || '',
+      item_code: row[F.itemCode] || '',
+      drug_name: row[F.fullName] || row[F.generic] || '',
+      cost: r.cost,
+      proposed_opd: r.opd,
+      proposed_ipd: r.ipd,
+      proposed_opd_foreign: r.foreignOpd,
+      proposed_ipd_foreign: r.foreignIpd,
+      proposed_gov: r.govOpd,
+      proposed_nhso: r.nhsoOpd,
+      historical_gm: r.historicalGM,
+      target_gm: r.targetGM,
+      actual_gm: r.actualGM,
+      markup: r.markup,
+      pricing_mode: r.mode,
+      pricing_reason: r.reason,
+      old_anchor: toNumber(el.pricingOldPrice?.value),
+      notes: el.proposalNotes?.value || '',
+      submitted_by: operator,
+      policy_snapshot_json: JSON.stringify(pricingSettings)
+    };
+
+    try {
+      el.submitProposalBtn.disabled = true;
+      const result = await postAction('submit_pricing_proposal', payload);
+      showToast('ส่งข้อเสนอราคาแล้ว · Pending approval');
+      clearProposalContext();
+      await loadPricingProposals();
+      await loadPricingHistory({ silent: true });
+      switchTab('proposalsTab');
+      return result;
+    } catch (err) {
+      showToast('ส่งข้อเสนอไม่สำเร็จ: ' + err.message, 'error');
+    } finally {
+      el.submitProposalBtn.disabled = !state.proposalDrug;
+    }
+  }
+
+  async function loadPricingProposals(options = {}) {
+    if (!isConfigured() || !el.proposalList) return;
+    try {
+      const status = el.proposalStatusFilter ? el.proposalStatusFilter.value : 'PENDING';
+      const payload = await jsonp('pricing_proposals', { token: APP_TOKEN, status, limit: 300 });
+      if (!payload || payload.ok === false) throw new Error(payload?.error || 'โหลดข้อเสนอราคาไม่ได้');
+      state.proposals = Array.isArray(payload.rows) ? payload.rows : [];
+      state.pendingCount = Number(payload.pendingCount || 0);
+      renderPricingProposals();
+      updatePendingBadge();
+    } catch (err) {
+      if (!options.silent) showToast('โหลดข้อเสนอราคาไม่สำเร็จ: ' + err.message, 'error');
+      el.proposalList.innerHTML = '<div class="empty-state">Pricing workflow backend ยังไม่พร้อม กรุณาอัปเดต Code.gs และรัน setup()</div>';
+    }
+  }
+
+  function updatePendingBadge() {
+    if (!el.pendingBadge) return;
+    const pendingCount = Number.isFinite(state.pendingCount)
+      ? state.pendingCount
+      : state.proposals.filter(p => String(p.status || '').toUpperCase() === 'PENDING').length;
+    el.pendingBadge.textContent = String(pendingCount);
+    el.pendingBadge.classList.toggle('hidden', pendingCount === 0);
+  }
+
+  function renderPricingProposals() {
+    if (!el.proposalList) return;
+    if (el.proposalCount) el.proposalCount.textContent = state.proposals.length.toLocaleString('th-TH');
+    if (!state.proposals.length) {
+      el.proposalList.innerHTML = '<div class="empty-state">ไม่มีข้อเสนอราคาตามเงื่อนไข</div>';
+      return;
+    }
+    const operator = getOperatorName();
+    el.proposalList.innerHTML = state.proposals.map((p) => {
+      const status = String(p.status || '').toUpperCase();
+      const canAct = status === 'PENDING';
+      const canCancel = canAct && operator && String(p.submitted_by || '') === operator;
+      return `
+        <article class="workflow-card">
+          <div class="workflow-card-head">
+            <div>
+              <span class="pill">${escapeHtml(p.item_code || '-')}</span>
+              <span class="status-pill status-${escapeAttr(status.toLowerCase())}">${escapeHtml(status || '-')}</span>
+              <h3>${escapeHtml(p.drug_name || '-')}</h3>
+              <p>เสนอโดย ${escapeHtml(p.submitted_by || '-')} · ${formatDateTime(p.submitted_at)}</p>
+            </div>
+            <strong class="proposal-id">${escapeHtml(String(p.proposal_id || '').slice(0, 8))}</strong>
+          </div>
+          <div class="proposal-price-grid">
+            ${priceDeltaCell('OPD', p.current_opd, p.proposed_opd)}
+            ${priceDeltaCell('IPD', p.current_ipd, p.proposed_ipd)}
+            ${priceDeltaCell('Government', p.current_gov, p.proposed_gov)}
+            ${priceDeltaCell('NHSO', p.current_nhso, p.proposed_nhso)}
+          </div>
+          <div class="proposal-meta">
+            <span>GM ใหม่ <b>${fmtPercent(p.actual_gm)}</b></span>
+            <span>Historical GM <b>${fmtPercent(p.historical_gm)}</b></span>
+            <span>Reason <b>${escapeHtml(p.pricing_reason || '-')}</b></span>
+            <span>Mode <b>${escapeHtml(p.pricing_mode || '-')}</b></span>
+          </div>
+          ${p.notes ? '<div class="proposal-note">' + escapeHtml(p.notes) + '</div>' : ''}
+          ${p.review_note ? '<div class="proposal-note review-note">Review: ' + escapeHtml(p.review_note) + '</div>' : ''}
+          ${canAct ? `
+            <div class="workflow-actions">
+              ${canCancel ? '<button class="btn secondary" data-proposal-action="cancel" data-proposal-id="' + escapeAttr(p.proposal_id) + '">ยกเลิกข้อเสนอ</button>' : ''}
+              <button class="btn secondary danger-outline" data-proposal-action="reject" data-proposal-id="${escapeAttr(p.proposal_id)}">Reject</button>
+              <button class="btn primary" data-proposal-action="approve" data-proposal-id="${escapeAttr(p.proposal_id)}">Approve & Apply</button>
+            </div>
+          ` : ''}
+        </article>
+      `;
+    }).join('');
+  }
+
+  function priceDeltaCell(label, before, after) {
+    const b = toNumber(before);
+    const a = toNumber(after);
+    let change = '-';
+    if (b !== null && b !== 0 && a !== null) change = (((a - b) / b) * 100).toFixed(1) + '%';
+    return '<div class="price-delta"><span>' + escapeHtml(label) + '</span><small>' +
+      fmtMoney(before) + ' →</small><strong>' + fmtMoney(after) + '</strong><em>' + change + '</em></div>';
+  }
+
+  async function handleProposalListAction(event) {
+    const btn = event.target.closest('[data-proposal-action]');
+    if (!btn) return;
+    const action = btn.dataset.proposalAction;
+    const proposalId = btn.dataset.proposalId;
+    const proposal = state.proposals.find(p => String(p.proposal_id) === String(proposalId));
+    if (!proposal) return;
+
+    if (action === 'cancel') {
+      const operator = getOperatorName();
+      if (!operator) return showToast('กรุณาระบุชื่อผู้ดำเนินการ', 'error');
+      if (!window.confirm('ยกเลิกข้อเสนอนี้หรือไม่?')) return;
+      try {
+        await postAction('cancel_pricing_proposal', { proposal_id: proposalId, operator });
+        showToast('ยกเลิกข้อเสนอแล้ว');
+        await refreshWorkflowAfterDecision();
+      } catch (err) {
+        showToast('ยกเลิกไม่สำเร็จ: ' + err.message, 'error');
+      }
+      return;
+    }
+
+    const review = await getReviewCredentials(action, proposal);
+    if (!review) return;
+    try {
+      btn.disabled = true;
+      await postAction(action === 'approve' ? 'approve_pricing_proposal' : 'reject_pricing_proposal', {
+        proposal_id: proposalId,
+        reviewed_by: review.reviewer,
+        approver_pin: review.pin,
+        review_note: review.note
+      });
+      showToast(action === 'approve' ? 'อนุมัติและอัปเดตราคาใน DataBase แล้ว' : 'ปฏิเสธข้อเสนอแล้ว');
+      await refreshWorkflowAfterDecision();
+    } catch (err) {
+      showToast((action === 'approve' ? 'อนุมัติ' : 'ปฏิเสธ') + ' ไม่สำเร็จ: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function getReviewCredentials(action, proposal) {
+    const title = action === 'approve' ? 'Approve & Apply ราคา' : 'Reject ข้อเสนอราคา';
+    if (window.Swal) {
+      const res = await Swal.fire({
+        title,
+        html: `
+          <div class="approval-form">
+            <label>ผู้อนุมัติ / ผู้ทบทวน<input id="reviewerName" class="swal2-input" value="${escapeAttr(getOperatorName())}"></label>
+            <label>Approver PIN<input id="reviewerPin" class="swal2-input" type="password" autocomplete="off"></label>
+            <label>หมายเหตุ<input id="reviewerNote" class="swal2-input" placeholder="Optional"></label>
+          </div>
+          <p style="font-size:.82rem;color:#64748b">Proposal ${escapeHtml(String(proposal.proposal_id || '').slice(0, 8))} · ${escapeHtml(proposal.item_code || '')}</p>
+        `,
+        showCancelButton: true,
+        confirmButtonText: action === 'approve' ? 'Approve & Apply' : 'Reject',
+        cancelButtonText: 'Cancel',
+        preConfirm: () => {
+          const reviewer = document.getElementById('reviewerName')?.value.trim();
+          const pin = document.getElementById('reviewerPin')?.value || '';
+          const note = document.getElementById('reviewerNote')?.value || '';
+          if (!reviewer || !pin) {
+            Swal.showValidationMessage('กรุณาระบุผู้ทบทวนและ Approver PIN');
+            return false;
+          }
+          return { reviewer, pin, note };
+        }
+      });
+      if (!res.isConfirmed) return null;
+      persistOperatorName(res.value.reviewer);
+      return res.value;
+    }
+    const reviewer = window.prompt('ชื่อผู้อนุมัติ / ผู้ทบทวน', getOperatorName());
+    if (!reviewer) return null;
+    const pin = window.prompt('Approver PIN');
+    if (!pin) return null;
+    const note = window.prompt('หมายเหตุ (ถ้ามี)', '') || '';
+    persistOperatorName(reviewer);
+    return { reviewer, pin, note };
+  }
+
+  async function refreshWorkflowAfterDecision() {
+    await Promise.all([
+      loadData({ silent: true }),
+      loadPricingProposals({ silent: true }),
+      loadPricingHistory({ silent: true })
+    ]);
+  }
+
+  async function loadPricingHistory(options = {}) {
+    if (!isConfigured() || !el.historyList) return;
+    try {
+      const itemCode = el.historyItemFilter ? el.historyItemFilter.value.trim() : '';
+      const payload = await jsonp('pricing_history', { token: APP_TOKEN, item_code: itemCode, limit: 300 });
+      if (!payload || payload.ok === false) throw new Error(payload?.error || 'โหลด Pricing History ไม่ได้');
+      state.history = Array.isArray(payload.rows) ? payload.rows : [];
+      renderPricingHistory();
+    } catch (err) {
+      if (!options.silent) showToast('โหลด Pricing History ไม่สำเร็จ: ' + err.message, 'error');
+      el.historyList.innerHTML = '<div class="empty-state">Pricing history backend ยังไม่พร้อม</div>';
+    }
+  }
+
+  function renderPricingHistory() {
+    if (!el.historyList) return;
+    if (el.historyCount) el.historyCount.textContent = state.history.length.toLocaleString('th-TH');
+    if (!state.history.length) {
+      el.historyList.innerHTML = '<div class="empty-state">ยังไม่มี Pricing History</div>';
+      return;
+    }
+    el.historyList.innerHTML = state.history.map((h) => {
+      const before = safeJsonParse(h.before_json);
+      const after = safeJsonParse(h.after_json);
+      const hasPriceChange = before && after && (before.opd !== undefined || after.opd !== undefined);
+      return `
+        <article class="history-card">
+          <div class="workflow-card-head">
+            <div>
+              <span class="status-pill status-${escapeAttr(String(h.status || '').toLowerCase())}">${escapeHtml(h.action || h.status || '-')}</span>
+              <h3>${escapeHtml(h.drug_name || h.item_code || 'Pricing Policy')}</h3>
+              <p>${escapeHtml(h.actor || '-')} · ${formatDateTime(h.action_at)}</p>
+            </div>
+            <span class="pill">${escapeHtml(h.item_code || 'POLICY')}</span>
+          </div>
+          ${hasPriceChange ? `
+            <div class="history-price-line">
+              <span>OPD <b>${fmtMoney(before?.opd)}</b> → <strong>${fmtMoney(after?.opd)}</strong></span>
+              <span>IPD <b>${fmtMoney(before?.ipd)}</b> → <strong>${fmtMoney(after?.ipd)}</strong></span>
+              <span>Gov <b>${fmtMoney(before?.gov)}</b> → <strong>${fmtMoney(after?.gov)}</strong></span>
+              <span>NHSO <b>${fmtMoney(before?.nhso)}</b> → <strong>${fmtMoney(after?.nhso)}</strong></span>
+            </div>
+          ` : ''}
+          ${h.note ? '<div class="proposal-note">' + escapeHtml(h.note) + '</div>' : ''}
+        </article>
+      `;
+    }).join('');
+  }
+
+  function safeJsonParse(value) {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    try { return JSON.parse(String(value)); } catch (_err) { return null; }
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '-';
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? escapeHtml(String(value)) : d.toLocaleString('th-TH');
   }
 
   async function ping() {
