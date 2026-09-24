@@ -281,6 +281,8 @@ function saveRow_(row) {
       newVals[colIdx] = new Date().toISOString();
       return;
     }
+    // Existing price/tariff fields must change only through Pricing Approval Workflow.
+    if (isProtectedPricingColumn_(header)) return;
     if (Object.prototype.hasOwnProperty.call(row, header)) {
       newVals[colIdx] = row[header];
     }
@@ -415,6 +417,8 @@ function batchImportRows_(payload) {
         if (!header || cIdx === rowIdCol || cIdx === createdAtCol) return;
         if (cIdx === updatedAtCol) {
           allData[targetIdx][cIdx] = now;
+        } else if (isProtectedPricingColumn_(header)) {
+          return;
         } else if (Object.prototype.hasOwnProperty.call(item, header)) {
           allData[targetIdx][cIdx] = item[header];
         }
@@ -589,6 +593,7 @@ function getPricingSettings_() {
 function savePricingSettings_(payload) {
   setupPricingWorkflowSheets_();
   const operator = requireOperator_(payload.updated_by || payload.operator);
+  verifyApproverPin_(payload.approver_pin || payload.pin);
   const settings = payload.settings || payload.pricing_settings;
   if (!settings || typeof settings !== 'object') throw new Error('Missing pricing settings');
   validatePricingSettingsPayload_(settings);
@@ -857,12 +862,13 @@ function listPricingProposals_(params) {
   const limit = Math.max(1, Math.min(500, Number((params && params.limit) || 200)));
 
   let rows = values.map(v => rowToObject_(headers, v));
+  const pendingCount = rows.filter(r => String(r.status || '').toUpperCase() === 'PENDING').length;
   if (statusFilter && statusFilter !== 'ALL') {
     rows = rows.filter(r => String(r.status || '').toUpperCase() === statusFilter);
   }
   rows.reverse();
   rows = rows.slice(0, limit);
-  return { ok: true, rows: rows, rowCount: rows.length };
+  return { ok: true, rows: rows, rowCount: rows.length, pendingCount: pendingCount };
 }
 
 function listPricingHistory_(params) {
@@ -1030,6 +1036,23 @@ function extractProposalPriceSnapshot_(row) {
     actual_gm: row.actual_gm || '',
     markup: row.markup || ''
   };
+}
+
+function isProtectedPricingColumn_(header) {
+  return [
+    'ราคา OPD',
+    'ราคา IPD',
+    'ราคา OPD_Foreigner',
+    'ราคา IPD_Foreigner',
+    'government_opd_price',
+    'nhso_heart_price',
+    'gross_margin_opd',
+    'gross_margin_ipd',
+    'gross_margin_opd_foreigner',
+    'gross_margin_ipd_foreigner',
+    'gross_margin_gov',
+    'gross_margin_nhso'
+  ].includes(String(header || ''));
 }
 
 function verifyApproverPin_(pin) {
