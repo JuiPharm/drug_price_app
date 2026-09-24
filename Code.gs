@@ -474,6 +474,36 @@ function batchImportRows_(payload) {
 // Central policy + proposal approval + audit history
 // -------------------------------------------------------------
 
+function withPricingLock_(fn) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function savePricingSettings_(payload) {
+  return withPricingLock_(function () { return savePricingSettingsUnlocked_(payload); });
+}
+
+function submitPricingProposal_(payload) {
+  return withPricingLock_(function () { return submitPricingProposalUnlocked_(payload); });
+}
+
+function approvePricingProposal_(payload) {
+  return withPricingLock_(function () { return approvePricingProposalUnlocked_(payload); });
+}
+
+function rejectPricingProposal_(payload) {
+  return withPricingLock_(function () { return rejectPricingProposalUnlocked_(payload); });
+}
+
+function cancelPricingProposal_(payload) {
+  return withPricingLock_(function () { return cancelPricingProposalUnlocked_(payload); });
+}
+
 function setupPricingWorkflowSheets_() {
   const settingsHeaders = ['settings_id', 'settings_json', 'updated_at', 'updated_by'];
   const proposalHeaders = [
@@ -590,7 +620,7 @@ function getPricingSettings_() {
   };
 }
 
-function savePricingSettings_(payload) {
+function savePricingSettingsUnlocked_(payload) {
   setupPricingWorkflowSheets_();
   const operator = requireOperator_(payload.updated_by || payload.operator);
   verifyApproverPin_(payload.approver_pin || payload.pin);
@@ -653,7 +683,7 @@ function validatePricingSettingsPayload_(settings) {
   if (!Array.isArray(settings.anchors) || settings.anchors.length < 2) throw new Error('At least 2 GM anchors are required');
 }
 
-function submitPricingProposal_(payload) {
+function submitPricingProposalUnlocked_(payload) {
   setupPricingWorkflowSheets_();
   const operator = requireOperator_(payload.submitted_by || payload.operator);
   const proposal = payload.proposal || payload;
@@ -728,7 +758,7 @@ function submitPricingProposal_(payload) {
   return { ok: true, action: 'submit_pricing_proposal', proposal_id: proposalId, status: 'PENDING' };
 }
 
-function approvePricingProposal_(payload) {
+function approvePricingProposalUnlocked_(payload) {
   setupPricingWorkflowSheets_();
   const reviewer = requireOperator_(payload.reviewed_by || payload.operator);
   verifyApproverPin_(payload.approver_pin || payload.pin);
@@ -801,7 +831,7 @@ function approvePricingProposal_(payload) {
   return { ok: true, action: 'approve_pricing_proposal', proposal_id: proposalId, status: 'APPROVED' };
 }
 
-function rejectPricingProposal_(payload) {
+function rejectPricingProposalUnlocked_(payload) {
   setupPricingWorkflowSheets_();
   const reviewer = requireOperator_(payload.reviewed_by || payload.operator);
   verifyApproverPin_(payload.approver_pin || payload.pin);
@@ -833,7 +863,7 @@ function rejectPricingProposal_(payload) {
   return { ok: true, action: 'reject_pricing_proposal', proposal_id: proposalId, status: 'REJECTED' };
 }
 
-function cancelPricingProposal_(payload) {
+function cancelPricingProposalUnlocked_(payload) {
   setupPricingWorkflowSheets_();
   const operator = requireOperator_(payload.operator || payload.cancelled_by);
   const proposalId = String(payload.proposal_id || '').trim();
