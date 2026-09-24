@@ -220,6 +220,7 @@
     centralPolicyStatus: byId('centralPolicyStatus'),
     centralPolicyMeta: byId('centralPolicyMeta'),
     settingsOperator: byId('settingsOperator'),
+    settingsApproverPin: byId('settingsApproverPin'),
     formulaError: byId('formulaError'),
     savePricingSettingsBtn: byId('savePricingSettingsBtn'),
     resetPricingSettingsBtn: byId('resetPricingSettingsBtn'),
@@ -944,10 +945,14 @@
       if (!operator) throw new Error('กรุณาระบุชื่อผู้แก้ไข Policy');
 
       const previous = pricingSettings;
+      if (isConfigured() && !(el.settingsApproverPin && el.settingsApproverPin.value)) {
+        throw new Error('กรุณาระบุ Approver PIN สำหรับเปลี่ยน Central Policy');
+      }
       if (isConfigured()) {
         await postAction('save_pricing_settings', {
           settings: next,
           updated_by: operator,
+          approver_pin: el.settingsApproverPin ? el.settingsApproverPin.value : '',
           previous_settings: previous
         });
       }
@@ -959,6 +964,7 @@
       calculatePricingSimulation();
       if (el.centralPolicyStatus) el.centralPolicyStatus.textContent = isConfigured() ? 'Central policy active' : 'Local only';
       if (el.centralPolicyMeta) el.centralPolicyMeta.textContent = 'แก้ไขโดย ' + operator + ' · ' + new Date().toLocaleString('th-TH');
+      if (el.settingsApproverPin) el.settingsApproverPin.value = '';
       showToast(isConfigured() ? 'บันทึก Central Pricing Policy แล้ว' : 'บันทึก Local Pricing Settings แล้ว');
       if (isConfigured()) loadPricingHistory({ silent: true });
     } catch (err) {
@@ -999,10 +1005,14 @@
     }
     const defaults = PricingEngine.cloneDefaultSettings();
     try {
+      if (isConfigured() && !(el.settingsApproverPin && el.settingsApproverPin.value)) {
+        throw new Error('กรุณาระบุ Approver PIN สำหรับ Reset Central Policy');
+      }
       if (isConfigured()) {
         await postAction('save_pricing_settings', {
           settings: defaults,
           updated_by: operator,
+          approver_pin: el.settingsApproverPin ? el.settingsApproverPin.value : '',
           previous_settings: pricingSettings,
           note: 'Reset to default policy'
         });
@@ -1142,6 +1152,7 @@
       const payload = await jsonp('pricing_proposals', { token: APP_TOKEN, status, limit: 300 });
       if (!payload || payload.ok === false) throw new Error(payload?.error || 'โหลดข้อเสนอราคาไม่ได้');
       state.proposals = Array.isArray(payload.rows) ? payload.rows : [];
+      state.pendingCount = Number(payload.pendingCount || 0);
       renderPricingProposals();
       updatePendingBadge();
     } catch (err) {
@@ -1152,7 +1163,9 @@
 
   function updatePendingBadge() {
     if (!el.pendingBadge) return;
-    const pendingCount = state.proposals.filter(p => String(p.status || '').toUpperCase() === 'PENDING').length;
+    const pendingCount = Number.isFinite(state.pendingCount)
+      ? state.pendingCount
+      : state.proposals.filter(p => String(p.status || '').toUpperCase() === 'PENDING').length;
     el.pendingBadge.textContent = String(pendingCount);
     el.pendingBadge.classList.toggle('hidden', pendingCount === 0);
   }
