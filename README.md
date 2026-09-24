@@ -189,3 +189,46 @@ https://USERNAME.github.io/REPOSITORY_NAME/
 ### นำเข้า Excel แล้วคอลัมน์ไม่ตรง
 - สามารถกดคลิกที่ **"🔗 การจับคู่คอลัมน์ (Column Mapping)"** ในหน้าต่างนำเข้า เพื่อเลือกคอลัมน์ที่ถูกต้องได้เองอย่างอิสระ
 
+
+
+---
+
+## Pricing Engine v2 (2026-09)
+
+ระบบคำนวณราคาได้รับการเพิ่ม Pricing Policy v2 โดยใช้ logic เดียวกันในหน้า Calculator,
+ปุ่ม **คำนวณราคาอัตโนมัติ** ในหน้ารายละเอียดยา และการนำเข้า Excel
+
+### ค่าเริ่มต้น
+
+- IPD = `OPD × 1.20`
+- Foreign OPD = `OPD × 1.30`
+- Foreign IPD = `IPD × 1.30`
+- Government pre-floor = `IPD × 0.70`
+- NHSO pre-floor = `IPD × 0.60`
+- Government final = `MAX(OPD, Government pre-floor)`
+- NHSO final = `MAX(OPD, NHSO pre-floor)`
+
+ผู้ใช้สามารถแก้สูตร IPD / Foreign / Gov / NHSO, วิธีปัดราคา, floor policy และ Historical GM anchors
+ได้จากแท็บ **ตั้งค่า** โดยค่า settings จะถูกเก็บไว้ใน browser ของผู้ใช้ (localStorage)
+
+### โหมดคำนวณ OPD
+
+1. **Historical Suggested GM** — ใช้ Smooth historical GM curve ตามต้นทุน
+2. **Target GM** — `OPD = Cost / (1 - GM)`
+3. **กำหนด OPD Price** — คำนวณ Actual Gross Margin และ Markup ย้อนกลับ
+
+### อัปเกรด Google Apps Script
+
+เพื่อให้บันทึก **Government OPD** และ `gross_margin_gov` ลง Google Sheet ได้:
+
+1. เปิด Google Sheet > Extensions > Apps Script
+2. แทนที่โค้ดเดิมด้วย `Code.gs` เวอร์ชันล่าสุดจาก repository
+3. กด Save
+4. รันฟังก์ชัน `setup()` หนึ่งครั้ง และอนุญาตสิทธิ์หากระบบร้องขอ
+5. ตรวจว่าในชีต `DataBase` มีคอลัมน์:
+   - `government_opd_price`
+   - `gross_margin_gov`
+6. Deploy > Manage deployments > Edit > **New version** > Deploy
+7. กลับหน้าเว็บแล้วกด **Refresh**
+
+> คอลัมน์ สกย. เดิมไม่ถูกเปลี่ยนความหมายหรือเขียนทับด้วย Government pricing เพื่อรักษา compatibility กับข้อมูลเดิม

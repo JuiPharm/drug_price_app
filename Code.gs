@@ -45,6 +45,8 @@ function setup() {
     'gross_margin_สกย_ipd',
     'gross_margin_ipd_foreigner',
     'gross_margin_opd_foreigner',
+    'government_opd_price',
+    'gross_margin_gov',
     'gross_margin_nhso'
   ];
 
@@ -92,7 +94,7 @@ function doGet(e) {
 
     let result;
     if (action === 'ping') {
-      result = { ok: true, now: new Date().toISOString(), version: '2.0.0-excel-ready' };
+      result = { ok: true, now: new Date().toISOString(), version: '2.1.0-pricing-v2' };
     } else if (action === 'list') {
       result = listRows_();
     } else {

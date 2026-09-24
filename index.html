@@ -11,7 +11,7 @@
     <div>
       <p class="eyebrow">Drug database</p>
       <h1>ระบบดูและแก้ไขราคายา</h1>
-      <p class="subtext">เชื่อมข้อมูลจาก Google Sheet พร้อมค้นหา แก้ไข และคำนวณ Gross Margin</p>
+      <p class="subtext">เชื่อมข้อมูลจาก Google Sheet พร้อมค้นหา แก้ไข และคำนวณราคา/กำไรด้วย Pricing Policy v2</p>
     </div>
     <div class="status-card">
       <span id="syncStatus" class="status-dot idle"></span>
@@ -64,33 +64,130 @@
       </div>
     </section>
 
+
     <section id="calculatorTab" class="tab-panel">
-      <div class="calc-grid">
-        <article class="panel-card">
-          <h2>คำนวณราคาขายจาก % Gross Margin</h2>
-          <p class="hint">สูตร: ราคาขาย = ราคาต้นทุน / (1 - Gross margin / 100)</p>
-          <label>ราคาต้นทุน</label>
-          <input id="calcCostA" type="number" step="0.01" placeholder="เช่น 100" />
-          <label>% Gross Margin ที่ต้องการ</label>
-          <input id="calcMarginA" type="number" step="0.01" placeholder="เช่น 30" />
-          <button id="calcPriceBtn" class="btn primary full">คำนวณราคาขาย</button>
-          <output id="calcPriceResult" class="result-box">-</output>
+      <div class="pricing-layout">
+        <article class="panel-card pricing-input-card">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">BHH Pricing Engine v2</p>
+              <h2>คำนวณและจำลองราคายา</h2>
+            </div>
+            <span class="policy-badge">IPD default = OPD × 1.20</span>
+          </div>
+          <p class="hint">รองรับ 3 วิธี: Historical Suggested GM, Target GM และกำหนด OPD เองเพื่อคำนวณ GM ย้อนกลับ</p>
+
+          <div class="pricing-form-grid">
+            <label class="pricing-field">
+              <span>ราคาต้นทุน / หน่วย</span>
+              <input id="pricingCost" type="number" step="0.01" min="0" placeholder="เช่น 500" value="500" />
+            </label>
+            <label class="pricing-field">
+              <span>Pricing mode</span>
+              <select id="pricingMode">
+                <option value="historical">Historical Suggested GM</option>
+                <option value="gm">Target GM</option>
+                <option value="price">กำหนด OPD Price</option>
+              </select>
+            </label>
+            <label class="pricing-field">
+              <span>Pricing reason</span>
+              <select id="pricingReason">
+                <option value="new">New Drug</option>
+                <option value="replacement">Replacement Drug</option>
+                <option value="code">Code / Vendor Change</option>
+                <option value="specific">Specific Case</option>
+                <option value="highcost">High-cost Drug</option>
+                <option value="compounded">Compounded / Repacked</option>
+                <option value="adjustment">Price Adjustment</option>
+              </select>
+            </label>
+            <label class="pricing-field">
+              <span>ราคา OPD เดิม / ยาทดแทน (ถ้ามี)</span>
+              <input id="pricingOldPrice" type="number" step="0.01" min="0" placeholder="Optional" />
+            </label>
+            <label id="pricingTargetGMField" class="pricing-field hidden">
+              <span>Target Gross Margin (%)</span>
+              <input id="pricingTargetGM" type="number" step="0.1" min="0" max="99.99" value="55" />
+            </label>
+            <label id="pricingDesiredPriceField" class="pricing-field hidden">
+              <span>OPD Price ที่ต้องการ</span>
+              <input id="pricingDesiredPrice" type="number" step="0.01" min="0" placeholder="เช่น 1120" />
+            </label>
+          </div>
+
+          <button id="pricingCalcBtn" class="btn primary full">คำนวณ Pricing Simulation</button>
+          <div id="pricingError" class="negative-alert hidden"></div>
         </article>
 
-        <article class="panel-card">
-          <h2>คำนวณ % Gross Margin จากราคาขาย</h2>
-          <p class="hint">Gross margin = 100*((ราคาขาย - ราคาต้นทุน)/ราคาขาย)</p>
-          <label>ราคาต้นทุน</label>
-          <input id="calcCostB" type="number" step="0.01" placeholder="เช่น 100" />
-          <label>ราคาขาย</label>
-          <input id="calcSaleB" type="number" step="0.01" placeholder="เช่น 150" />
-          <button id="calcMarginBtn" class="btn primary full">คำนวณ Gross Margin</button>
-          <output id="calcMarginResult" class="result-box">-</output>
+        <article class="panel-card pricing-result-card">
+          <span class="result-label">Suggested / Final OPD</span>
+          <strong id="pricingOpdResult" class="pricing-hero">-</strong>
+          <div class="pricing-metrics">
+            <div><span>Historical GM</span><strong id="pricingHistoricalGM">-</strong></div>
+            <div><span>Actual GM</span><strong id="pricingActualGM">-</strong></div>
+            <div><span>Markup</span><strong id="pricingMarkup">-</strong></div>
+            <div><span>IPD / OPD</span><strong id="pricingIpdRatio">-</strong></div>
+          </div>
+          <div id="pricingAlert" class="policy-alert hidden"></div>
         </article>
       </div>
+
+      <article class="panel-card pricing-output-card">
+        <div class="panel-heading">
+          <div>
+            <h2>Tariff Simulation</h2>
+            <p class="hint">Gov/NHSO แสดงทั้งราคาก่อน Floor และราคาสุดท้าย เพื่อให้ตรวจสอบที่มาของราคาได้</p>
+          </div>
+        </div>
+        <div id="pricingTariffGrid" class="tariff-grid"></div>
+        <div id="pricingFloorTrace" class="floor-trace"></div>
+      </article>
     </section>
 
     <section id="settingsTab" class="tab-panel">
+      <article class="panel-card settings-card pricing-settings-card">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Pricing policy</p>
+            <h2>ตั้งค่าสูตรราคา</h2>
+          </div>
+          <span class="policy-badge">แก้ไขได้โดยไม่ต้องแก้ Code</span>
+        </div>
+        <p class="hint">ตัวแปรที่ใช้ได้: OPD, IPD, COST, GM &nbsp;|&nbsp; ฟังก์ชัน: MAX(), MIN(), ROUND(), CEIL(), FLOOR(), ABS()</p>
+
+        <div class="formula-grid">
+          <label class="pricing-field"><span>IPD formula</span><input id="formulaIpd" value="OPD*1.20" /></label>
+          <label class="pricing-field"><span>Foreign OPD</span><input id="formulaForeignOpd" value="OPD*1.30" /></label>
+          <label class="pricing-field"><span>Foreign IPD</span><input id="formulaForeignIpd" value="IPD*1.30" /></label>
+          <label class="pricing-field"><span>Government pre-floor</span><input id="formulaGov" value="IPD*0.70" /></label>
+          <label class="pricing-field"><span>NHSO pre-floor</span><input id="formulaNhso" value="IPD*0.60" /></label>
+          <label class="pricing-field"><span>Rounding step (บาท)</span><input id="pricingRoundingStep" type="number" step="0.01" min="0.01" value="1" /></label>
+          <label class="pricing-field"><span>Rounding mode</span>
+            <select id="pricingRoundingMode">
+              <option value="CEIL">CEIL — ปัดขึ้น</option>
+              <option value="ROUND">ROUND — ปัดใกล้สุด</option>
+              <option value="FLOOR">FLOOR — ปัดลง</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="pricing-checks">
+          <label><input id="applyGovFloor" type="checkbox" checked /> Government final ห้ามต่ำกว่า OPD</label>
+          <label><input id="applyNhsoFloor" type="checkbox" checked /> NHSO final ห้ามต่ำกว่า OPD</label>
+        </div>
+
+        <label class="pricing-field full-field">
+          <span>Historical GM anchors (JSON)</span>
+          <textarea id="pricingAnchors" rows="8" spellcheck="false"></textarea>
+        </label>
+        <div id="formulaError" class="negative-alert hidden"></div>
+        <div class="settings-actions">
+          <button id="savePricingSettingsBtn" class="btn primary">บันทึก Pricing Settings</button>
+          <button id="resetPricingSettingsBtn" class="btn secondary">คืนค่า Default</button>
+        </div>
+      </article>
+
       <article class="panel-card settings-card">
         <h2>ตรวจสอบการเชื่อมต่อ</h2>
         <p>URL ปัจจุบัน:</p>
@@ -198,7 +295,7 @@
           <div class="config-item checkbox-item">
             <label class="checkbox-label">
               <input type="checkbox" id="autoCalcPricesCheckbox" checked />
-              <span>คำนวณราคาอัตโนมัติ (ส่วนลด 20%, หลังส่วนลด - ทุน, GM, ราคา IPD/ต่างชาติ)</span>
+              <span>คำนวณราคาอัตโนมัติตาม Pricing Policy v2 (IPD / ต่างชาติ / Gov / NHSO / GM)</span>
             </label>
           </div>
         </div>
@@ -245,6 +342,7 @@
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <!-- SheetJS CDN for Client-side Excel parsing & generating -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="pricing-engine.js"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
