@@ -153,7 +153,7 @@ https://USERNAME.github.io/REPOSITORY_NAME/
 
 - แสดงรายการยาในรูปแบบ Card พร้อมป้ายเตือนราคาต่ำกว่าทุน
 - คลิกการ์ดเพื่อเปิดดูรายละเอียดและแก้ไขข้อมูล
-- ปุ่มคำนวณราคาอัตโนมัติ (OPD = สกย., IPD = OPD + 30%, ต่างชาติ = +30%)
+- ปุ่มคำนวณราคาอัตโนมัติตาม Central Pricing Policy ปัจจุบัน (รวม Government/NHSO gross tariff ก่อนส่วนลด)
 - บันทึกลง Google Sheet แบบเรียลไทม์
 
 ### 6. เครื่องมือคำนวณ Gross Margin
@@ -203,13 +203,16 @@ https://USERNAME.github.io/REPOSITORY_NAME/
 - IPD = `OPD × 1.20`
 - Foreign OPD = `OPD × 1.30`
 - Foreign IPD = `IPD × 1.30`
-- Government pre-floor = `IPD × 0.70`
-- NHSO pre-floor = `IPD × 0.60`
-- Government final = `MAX(OPD, Government pre-floor)`
-- NHSO final = `MAX(OPD, NHSO pre-floor)`
+- Historical Government net target = `MAX(OPD, CEIL(IPD × 0.70))`
+- Historical NHSO net target = `MAX(OPD, CEIL(IPD × 0.60))`
+- **Current v4 Government Gross Tariff** = `CEIL(Gov Net Target / 0.70)`
+- **Current v4 NHSO Gross Tariff** = `CEIL(NHSO Net Target / 0.60)`
 
-ผู้ใช้สามารถแก้สูตร IPD / Foreign / Gov / NHSO, วิธีปัดราคา, floor policy และ Historical GM anchors
-ได้จากแท็บ **ตั้งค่า** โดยค่า settings จะถูกเก็บไว้ใน browser ของผู้ใช้ (localStorage)
+> หมายเหตุ: สูตร Government/NHSO แบบ v2 ด้านบนเป็นที่มาของ **net target** เท่านั้น ไม่ใช่ราคาป้ายก่อนส่วนลดแล้ว
+> ตั้งแต่ v4 ระบบล็อกส่วนลด Government 30% / NHSO 40% และบังคับว่ารายรับหลังส่วนลดต้องไม่ต่ำกว่า OPD
+
+ผู้ใช้ยังแก้สูตร IPD / Foreign, วิธีปัด OPD/IPD และ Historical GM anchors ได้จากแท็บ **ตั้งค่า**
+แต่ไม่สามารถแก้ % ส่วนลด Government/NHSO หรือปิด OPD floor ได้
 
 ### โหมดคำนวณ OPD
 
