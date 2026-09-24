@@ -743,6 +743,23 @@ function approvePricingProposal_(payload) {
 
   const db = findDatabaseRow_(found.row.row_id, found.row.item_code);
   if (!db) throw new Error('Drug row not found in DataBase');
+
+  // Optimistic concurrency guard: do not apply a proposal created from stale prices.
+  const staleFields = [];
+  compareProposalBasePrice_(staleFields, 'OPD', found.row.current_opd, db.row['ราคา OPD']);
+  compareProposalBasePrice_(staleFields, 'IPD', found.row.current_ipd, db.row['ราคา IPD']);
+  compareProposalBasePrice_(staleFields, 'Foreign OPD', found.row.current_opd_foreign, db.row['ราคา OPD_Foreigner']);
+  compareProposalBasePrice_(staleFields, 'Foreign IPD', found.row.current_ipd_foreign, db.row['ราคา IPD_Foreigner']);
+  compareProposalBasePrice_(staleFields, 'Government', found.row.current_gov, db.row['government_opd_price']);
+  compareProposalBasePrice_(staleFields, 'NHSO', found.row.current_nhso, db.row['nhso_heart_price']);
+  if (staleFields.length) {
+    throw new Error(
+      'STALE_PROPOSAL: ราคาปัจจุบันเปลี่ยนหลังจากส่งข้อเสนอ (' +
+      staleFields.join(', ') +
+      '). กรุณายกเลิกข้อเสนอเดิมและสร้างข้อเสนอใหม่.'
+    );
+  }
+
   const before = extractPriceSnapshot_(db.row);
 
   const update = {
@@ -1036,6 +1053,18 @@ function extractProposalPriceSnapshot_(row) {
     actual_gm: row.actual_gm || '',
     markup: row.markup || ''
   };
+}
+
+function compareProposalBasePrice_(changed, label, proposalValue, currentValue) {
+  const a = normalizeComparablePrice_(proposalValue);
+  const b = normalizeComparablePrice_(currentValue);
+  if (a !== b) changed.push(label);
+}
+
+function normalizeComparablePrice_(value) {
+  if (value === '' || value === null || value === undefined) return '';
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n * 10000) / 10000 : String(value).trim();
 }
 
 function isProtectedPricingColumn_(header) {
