@@ -818,9 +818,15 @@ input[readonly] { background: #f1f5f9; color: #475569; }
 /* Pricing Engine v2 */
 .pricing-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   gap: 1rem;
+  align-items: start; /* Do not stretch the result card to the input form height. */
   margin-bottom: 1rem;
+}
+.pricing-layout > .panel-card,
+.pricing-output-card,
+.proposal-submit-card {
+  min-width: 0;
 }
 .panel-heading {
   display: flex;
@@ -862,6 +868,8 @@ input[readonly] { background: #f1f5f9; color: #475569; }
 .pricing-field select,
 .pricing-field textarea {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid #d6dde7;
   background: #fff;
   border-radius: 12px;
@@ -888,20 +896,46 @@ input[readonly] { background: #f1f5f9; color: #475569; }
 }
 .pricing-hero {
   display: block;
-  font-size: clamp(2rem, 5vw, 3.2rem);
-  line-height: 1.05;
-  margin: .4rem 0 1rem;
+  font-size: clamp(1.55rem, 2.5vw, 2.1rem);
+  line-height: 1.18;
+  margin: .1rem 0 .25rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
   color: #0f172a;
+}
+/* The summary is a compact content-height card, independent of the long form. */
+.pricing-result-card {
+  width: 100%;
+  max-width: 360px;
+  justify-self: end;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: .55rem;
+  padding: .95rem 1rem;
+}
+.pricing-result-card .result-label {
+  font-size: .73rem;
+  letter-spacing: .035em;
+}
+.pricing-result-card .policy-alert {
+  margin-top: .15rem;
+  padding: .65rem .75rem;
+  font-size: .8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 .pricing-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: .75rem;
+  gap: .5rem;
+  width: 100%;
 }
 .pricing-metrics > div {
+  min-width: 0;
   border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  padding: .8rem;
+  border-radius: 10px;
+  padding: .55rem .65rem;
   background: #f8fafc;
 }
 .pricing-metrics span,
@@ -912,7 +946,15 @@ input[readonly] { background: #f1f5f9; color: #475569; }
   margin-bottom: .25rem;
 }
 .pricing-metrics strong {
-  font-size: 1.05rem;
+  display: block;
+  font-size: .96rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.pricing-result-card .pricing-metrics span {
+  font-size: .73rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 .policy-alert {
   margin-top: 1rem;
@@ -928,10 +970,14 @@ input[readonly] { background: #f1f5f9; color: #475569; }
   gap: .75rem;
 }
 .tariff-card {
+  min-width: 0;
   border: 1px solid #dbe4ee;
   border-radius: 14px;
   padding: .9rem;
   background: #fff;
+}
+.tariff-card > * {
+  overflow-wrap: anywhere;
 }
 .tariff-card strong {
   font-size: 1.02rem;
@@ -967,8 +1013,21 @@ input[readonly] { background: #f1f5f9; color: #475569; }
 .pricing-override-panel .hint { margin: .55rem 0 .7rem; }
 .pricing-override-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
   gap: .7rem;
+}
+.pricing-form-grid > *,
+.pricing-override-grid > *,
+.pricing-output-card .panel-heading > div,
+.pricing-output-card .trace-row > * {
+  min-width: 0;
+}
+.pricing-output-card .trace-row > * {
+  overflow-wrap: anywhere;
+}
+.pricing-override-heading .btn {
+  max-width: 100%;
+  white-space: normal;
 }
 @media (max-width: 620px) {
   .pricing-override-grid { grid-template-columns: 1fr; }
@@ -1011,19 +1070,49 @@ input[readonly] { background: #f1f5f9; color: #475569; }
   margin-bottom: 1rem;
 }
 
+@media (max-width: 980px) {
+  .pricing-layout { grid-template-columns: minmax(0, 1fr); }
+  .pricing-result-card {
+    justify-self: start;
+    max-width: 420px;
+  }
+}
 @media (max-width: 900px) {
-  .pricing-layout { grid-template-columns: 1fr; }
   .tariff-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .trace-row { grid-template-columns: 1fr 1fr; }
+  .trace-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .trace-row span:nth-of-type(2) { grid-column: 1 / -1; }
 }
 @media (max-width: 620px) {
   .pricing-form-grid,
-  .formula-grid,
-  .pricing-metrics,
-  .tariff-grid { grid-template-columns: 1fr; }
+  .formula-grid { grid-template-columns: minmax(0, 1fr); }
+  /* Keep four GM metrics in two columns so the result does not grow tall. */
+  .pricing-result-card .pricing-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .panel-heading { flex-direction: column; }
   .policy-badge { white-space: normal; }
+}
+@media (max-width: 480px) {
+  .pricing-layout { gap: .7rem; }
+  .pricing-result-card {
+    max-width: none;
+    padding: .8rem .9rem;
+  }
+  .pricing-result-card .pricing-hero {
+    font-size: clamp(1.5rem, 7vw, 1.9rem);
+  }
+  .pricing-result-card .pricing-metrics > div {
+    padding: .5rem .55rem;
+  }
+  .pricing-output-card .tariff-trace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pricing-output-card .tariff-trace span:nth-of-type(2) {
+    grid-column: auto;
+  }
+}
+@media (max-width: 360px) {
+  .pricing-output-card .tariff-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 
