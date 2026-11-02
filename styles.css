@@ -935,6 +935,43 @@ input[readonly] { background: #f1f5f9; color: #475569; }
 }
 .tariff-card strong {
   font-size: 1.02rem;
+  display: block;
+}
+.tariff-gm {
+  display: block;
+  margin-top: .3rem;
+  color: #166534;
+  font-size: .83rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.tariff-card-manual {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+.pricing-override-panel {
+  margin: .8rem 0 1rem;
+  padding: .9rem;
+  background: #f8fafc;
+  border: 1px solid #dbe4ee;
+  border-radius: 14px;
+}
+.pricing-override-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: .7rem;
+}
+.pricing-override-heading strong { font-size: .95rem; }
+.pricing-override-panel .hint { margin: .55rem 0 .7rem; }
+.pricing-override-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .7rem;
+}
+@media (max-width: 620px) {
+  .pricing-override-grid { grid-template-columns: 1fr; }
 }
 .floor-trace {
   margin-top: 1rem;

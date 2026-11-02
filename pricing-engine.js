@@ -229,6 +229,17 @@
     return base;
   }
 
+  function manualTariffPrice(input, key, label) {
+    const raw = input[key];
+    if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value <= 0) throw new Error(label + ' ที่กำหนดเองต้องมากกว่า 0 บาท');
+    // Manual item-specific tariffs retain satang, regardless of policy rounding.
+    const rounded = Number(value.toFixed(2));
+    if (rounded <= 0) throw new Error(label + ' ต้องไม่น้อยกว่า 0.01 บาท');
+    return rounded;
+  }
+
   function deriveTariffs(input, settings) {
     settings = resolveSettings(settings);
     const opd = Number(input.opd);
@@ -237,8 +248,14 @@
 
     const actualGM = opd > 0 ? grossMargin(cost, opd) : 0;
     const vars0 = { OPD: opd, COST: cost, GM: actualGM };
+    const manualIpd = manualTariffPrice(input, 'manualIpd', 'IPD');
+    const manualForeignOpd = manualTariffPrice(input, 'manualForeignOpd', 'Foreign OPD');
+    const manualForeignIpd = manualTariffPrice(input, 'manualForeignIpd', 'Foreign IPD');
     let ipd;
-    if (input.ipdOverride !== undefined && input.ipdOverride !== null && input.ipdOverride !== '') {
+    if (manualIpd !== null) {
+      ipd = manualIpd;
+    } else if (input.ipdOverride !== undefined && input.ipdOverride !== null && input.ipdOverride !== '') {
+      // Existing import override retains policy rounding.
       ipd = roundTo(Number(input.ipdOverride), settings.roundingStep, settings.roundingMode);
     } else {
       ipd = roundTo(evaluateFormula(settings.formulas.ipd, vars0), settings.roundingStep, settings.roundingMode);
@@ -247,8 +264,10 @@
     const vars = { OPD: opd, IPD: ipd, COST: cost, GM: actualGM };
     const rubOpd = roundTo(evaluateFormula(settings.formulas.rubOpd, vars), settings.roundingStep, settings.roundingMode);
     const rubIpd = roundTo(evaluateFormula(settings.formulas.rubIpd, vars), settings.roundingStep, settings.roundingMode);
-    const foreignOpd = roundTo(evaluateFormula(settings.formulas.foreignOpd, vars), settings.roundingStep, settings.roundingMode);
-    const foreignIpd = roundTo(evaluateFormula(settings.formulas.foreignIpd, vars), settings.roundingStep, settings.roundingMode);
+    const foreignOpd = manualForeignOpd !== null ? manualForeignOpd :
+      roundTo(evaluateFormula(settings.formulas.foreignOpd, vars), settings.roundingStep, settings.roundingMode);
+    const foreignIpd = manualForeignIpd !== null ? manualForeignIpd :
+      roundTo(evaluateFormula(settings.formulas.foreignIpd, vars), settings.roundingStep, settings.roundingMode);
 
     // Source-derived net targets:
     // Gov net target  = MAX(OPD, CEIL(IPD * 70%))
@@ -274,6 +293,11 @@
       rubIpd: rubIpd,
       foreignOpd: foreignOpd,
       foreignIpd: foreignIpd,
+      manualOverrides: {
+        ipd: manualIpd !== null,
+        foreignOpd: manualForeignOpd !== null,
+        foreignIpd: manualForeignIpd !== null
+      },
 
       govDiscountRate: GOV_DISCOUNT_RATE,
       nhsoDiscountRate: NHSO_DISCOUNT_RATE,
@@ -322,12 +346,22 @@
     }
 
     const actualGM = opd > 0 ? grossMargin(cost, opd) : 0;
-    const tariffs = deriveTariffs({ cost: cost, opd: opd }, settings);
+    const tariffs = deriveTariffs({
+      cost: cost,
+      opd: opd,
+      manualIpd: input.ipdOverride,
+      manualForeignOpd: input.foreignOpdOverride,
+      manualForeignIpd: input.foreignIpdOverride
+    }, settings);
     const reason = input.reason || 'new';
     const oldPrice = Number(input.oldPrice) || 0;
     const alerts = [];
 
     if (opd < cost) alerts.push('OPD ต่ำกว่าต้นทุน');
+    [['IPD', tariffs.ipd], ['Foreign OPD', tariffs.foreignOpd], ['Foreign IPD', tariffs.foreignIpd]]
+      .forEach(function (entry) {
+        if (entry[1] < cost) alerts.push(entry[0] + ' ต่ำกว่าต้นทุน');
+      });
     if (reason === 'code' && oldPrice > 0 && Math.abs(opd - oldPrice) > 0.01) {
       alerts.push('Code/Vendor change: ควรตรวจสอบการคงราคาเดิม');
     }

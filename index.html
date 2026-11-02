@@ -118,6 +118,24 @@
             </label>
           </div>
 
+          <div class="pricing-override-panel">
+            <div class="pricing-override-heading">
+              <strong>แก้ไขราคาเฉพาะรายการ (Manual Override)</strong>
+              <button id="pricingResetOverridesBtn" class="btn secondary" type="button">กลับไปใช้สูตรอัตโนมัติ</button>
+            </div>
+            <p class="hint">เว้นว่างเพื่อใช้สูตรจาก Central Pricing Policy · ราคาที่กรอกเองจะใช้เฉพาะการคำนวณและข้อเสนอราคานี้ ไม่เปลี่ยนสูตรกลาง</p>
+            <div class="pricing-override-grid">
+              <label class="pricing-field"><span>IPD (บาท)</span>
+                <input id="pricingIpdOverride" type="number" step="0.01" min="0.01" placeholder="Auto · OPD → IPD" />
+              </label>
+              <label class="pricing-field"><span>Foreign OPD (บาท)</span>
+                <input id="pricingForeignOpdOverride" type="number" step="0.01" min="0.01" placeholder="Auto · Foreign OPD" />
+              </label>
+              <label class="pricing-field"><span>Foreign IPD (บาท)</span>
+                <input id="pricingForeignIpdOverride" type="number" step="0.01" min="0.01" placeholder="Auto · Foreign IPD" />
+              </label>
+            </div>
+          </div>
           <button id="pricingCalcBtn" class="btn primary full">คำนวณ Pricing Simulation</button>
           <div id="pricingError" class="negative-alert hidden"></div>
         </article>
@@ -139,6 +157,7 @@
         <div class="panel-heading">
           <div>
             <h2>Tariff Simulation</h2>
+            <p class="hint">ตัวเลขในวงเล็บคือ Gross Margin (%) จาก (ราคาขาย − ต้นทุน) ÷ ราคาขาย · Government/NHSO คำนวณ GM จากรายรับสุทธิหลังส่วนลด 30%/40% ไม่ใช่ราคาป้าย</p>
             <p class="hint">Government/NHSO เป็น “ราคาตั้งก่อนส่วนลด” ระบบจะแสดง Target สุทธิจาก Source → Gross-up ราคาป้าย → รายรับคาดการณ์หลังส่วนลด และตรวจว่าต้องไม่ต่ำกว่า OPD</p>
           </div>
         </div>

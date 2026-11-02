@@ -196,6 +196,10 @@
     pricingTargetGM: byId('pricingTargetGM'),
     pricingDesiredPriceField: byId('pricingDesiredPriceField'),
     pricingDesiredPrice: byId('pricingDesiredPrice'),
+    pricingIpdOverride: byId('pricingIpdOverride'),
+    pricingForeignOpdOverride: byId('pricingForeignOpdOverride'),
+    pricingForeignIpdOverride: byId('pricingForeignIpdOverride'),
+    pricingResetOverridesBtn: byId('pricingResetOverridesBtn'),
     pricingCalcBtn: byId('pricingCalcBtn'),
     pricingError: byId('pricingError'),
     pricingOpdResult: byId('pricingOpdResult'),
@@ -330,9 +334,14 @@
 
     if (el.pricingCalcBtn) el.pricingCalcBtn.addEventListener('click', calculatePricingSimulation);
     if (el.pricingMode) el.pricingMode.addEventListener('change', () => { syncPricingMode(); calculatePricingSimulation(); });
-    [el.pricingCost, el.pricingReason, el.pricingOldPrice, el.pricingTargetGM, el.pricingDesiredPrice]
-      .filter(Boolean)
-      .forEach((node) => node.addEventListener('input', calculatePricingSimulation));
+    [el.pricingCost, el.pricingReason, el.pricingOldPrice, el.pricingTargetGM, el.pricingDesiredPrice,
+      el.pricingIpdOverride, el.pricingForeignOpdOverride, el.pricingForeignIpdOverride]
+      .filter(Boolean).forEach((node) => node.addEventListener('input', calculatePricingSimulation));
+    if (el.pricingResetOverridesBtn) el.pricingResetOverridesBtn.addEventListener('click', () => {
+      [el.pricingIpdOverride, el.pricingForeignOpdOverride, el.pricingForeignIpdOverride]
+        .filter(Boolean).forEach((node) => { node.value = ''; });
+      calculatePricingSimulation();
+    });
     if (el.savePricingSettingsBtn) el.savePricingSettingsBtn.addEventListener('click', savePricingSettingsFromUi);
     if (el.resetPricingSettingsBtn) el.resetPricingSettingsBtn.addEventListener('click', resetPricingSettings);
     if (el.submitProposalBtn) el.submitProposalBtn.addEventListener('click', submitCurrentProposal);
@@ -895,7 +904,10 @@
       targetGM: el.pricingTargetGM ? el.pricingTargetGM.value : '',
       desiredPrice: el.pricingDesiredPrice ? el.pricingDesiredPrice.value : '',
       reason: el.pricingReason ? el.pricingReason.value : 'new',
-      oldPrice: el.pricingOldPrice ? el.pricingOldPrice.value : ''
+      oldPrice: el.pricingOldPrice ? el.pricingOldPrice.value : '',
+      ipdOverride: el.pricingIpdOverride ? el.pricingIpdOverride.value : '',
+      foreignOpdOverride: el.pricingForeignOpdOverride ? el.pricingForeignOpdOverride.value : '',
+      foreignIpdOverride: el.pricingForeignIpdOverride ? el.pricingForeignIpdOverride.value : ''
     };
   }
 
@@ -906,7 +918,13 @@
       const result = PricingEngine.calculate(getPricingInput(), pricingSettings);
       state.lastPricingResult = result;
       renderPricingSimulation(result);
+      if (el.submitProposalBtn) el.submitProposalBtn.disabled = !state.proposalDrug;
     } catch (err) {
+      state.lastPricingResult = null; // Never submit stale prices when a manual edit is invalid.
+      if (el.submitProposalBtn) el.submitProposalBtn.disabled = true;
+      if (el.pricingTariffGrid) el.pricingTariffGrid.textContent = '';
+      if (el.pricingFloorTrace) el.pricingFloorTrace.textContent = '';
+      if (el.pricingOpdResult) el.pricingOpdResult.textContent = '-';
       if (el.pricingError) {
         el.pricingError.textContent = err.message;
         el.pricingError.classList.remove('hidden');
@@ -921,19 +939,26 @@
     el.pricingMarkup.textContent = fmtPercent(r.markup);
     el.pricingIpdRatio.textContent = r.opd > 0 ? r.ipdRatio.toFixed(3) + '×' : '-';
 
+    // Government and NHSO are gross list tariffs: margin uses after-discount receipts.
+    const overrides = r.manualOverrides || {};
     const tariffs = [
-      ['OPD', r.opd],
-      ['IPD', r.ipd],
-      ['Rub OPD', r.rubOpd],
-      ['Rub IPD', r.rubIpd],
-      ['Foreign OPD', r.foreignOpd],
-      ['Foreign IPD', r.foreignIpd],
-      ['Government OPD · ก่อนลด 30%', r.govGrossTariff],
-      ['NHSO OPD · ก่อนลด 40%', r.nhsoGrossTariff]
+      ['OPD', r.opd, r.opd, false, false],
+      ['IPD', r.ipd, r.ipd, Boolean(overrides.ipd), false],
+      ['Rub OPD', r.rubOpd, r.rubOpd, false, false],
+      ['Rub IPD', r.rubIpd, r.rubIpd, false, false],
+      ['Foreign OPD', r.foreignOpd, r.foreignOpd, Boolean(overrides.foreignOpd), false],
+      ['Foreign IPD', r.foreignIpd, r.foreignIpd, Boolean(overrides.foreignIpd), false],
+      ['Government OPD · ก่อนลด 30%', r.govGrossTariff, r.govAfterDiscount, false, true],
+      ['NHSO OPD · ก่อนลด 40%', r.nhsoGrossTariff, r.nhsoAfterDiscount, false, true]
     ];
-    el.pricingTariffGrid.innerHTML = tariffs.map(([label, value]) =>
-      '<div class="tariff-card"><span>' + escapeHtml(label) + '</span><strong>' + fmtMoney(value) + ' บาท</strong></div>'
-    ).join('');
+    el.pricingTariffGrid.innerHTML = tariffs.map(([label, value, realized, manual, net]) => {
+      const margin = grossMargin(r.cost, realized);
+      return '<div class="tariff-card' + (manual ? ' tariff-card-manual' : '') + '">' +
+        '<span>' + escapeHtml(label) + (manual ? ' · แก้ไขเอง' : '') + '</span>' +
+        '<strong>' + fmtMoney(value) + ' บาท</strong>' +
+        '<small class="tariff-gm" title="' + (net ? 'Gross Margin คำนวณจากรายรับหลังหักส่วนลด' : 'Gross Margin คำนวณจากราคาขาย') + '">' +
+        '(' + fmtPercent(margin) + ')</small></div>';
+    }).join('');
 
     el.pricingFloorTrace.innerHTML =
       '<div class="trace-row tariff-trace"><span>Government net target</span><b>' + fmtMoney(r.govNetTarget) +
@@ -1078,6 +1103,14 @@
     if (el.pricingReason) el.pricingReason.value = 'adjustment';
     if (el.pricingMode) el.pricingMode.value = 'historical';
     if (el.pricingDesiredPrice) el.pricingDesiredPrice.value = toNumber(state.current[F.opd]) ?? '';
+    // Do not carry manual prices across different drug proposals.
+    [[el.pricingIpdOverride, F.ipd], [el.pricingForeignOpdOverride, F.opdForeign], [el.pricingForeignIpdOverride, F.ipdForeign]]
+      .forEach(([node, field]) => {
+        if (!node) return;
+        node.value = '';
+        const current = toNumber(state.current[field]);
+        node.placeholder = current === null ? 'Auto (ใช้สูตรกลาง)' : 'Auto · เดิม ' + fmtMoney(current);
+      });
     if (el.dialog && el.dialog.open) el.dialog.close();
     syncPricingMode();
     calculatePricingSimulation();
@@ -1106,7 +1139,7 @@
     el.proposalContext.textContent =
       name + ' · Cost ' + fmtMoney(row[F.cost]) + ' · OPD ปัจจุบัน ' + fmtMoney(row[F.opd]) + ' · IPD ปัจจุบัน ' + fmtMoney(row[F.ipd]);
     el.proposalContextBadge.textContent = code;
-    el.submitProposalBtn.disabled = false;
+    el.submitProposalBtn.disabled = !state.lastPricingResult;
   }
 
   async function submitCurrentProposal() {
@@ -1215,6 +1248,8 @@
           <div class="proposal-price-grid">
             ${priceDeltaCell('OPD', p.current_opd, p.proposed_opd)}
             ${priceDeltaCell('IPD', p.current_ipd, p.proposed_ipd)}
+            ${priceDeltaCell('Foreign OPD', p.current_opd_foreign, p.proposed_opd_foreign)}
+            ${priceDeltaCell('Foreign IPD', p.current_ipd_foreign, p.proposed_ipd_foreign)}
             ${priceDeltaCell('Government gross', p.current_gov, p.proposed_gov)}
             ${priceDeltaCell('NHSO gross', p.current_nhso, p.proposed_nhso)}
           </div>
